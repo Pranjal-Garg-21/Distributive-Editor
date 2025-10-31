@@ -46,19 +46,33 @@ int main() {
         exit(EXIT_FAILURE);
     }
 
+   // ... inside main() after connect() ...
+
     printf("Connected to Name Server!\n");
 
     // 4. Prepare and send registration data
+    
+    // STEP 4A: Send the message type first
+    message_type_t msg_type = MSG_SS_REGISTER;
+    if (send(sock_fd, &msg_type, sizeof(message_type_t), 0) < 0) {
+        perror("send message type failed");
+        close(sock_fd);
+        exit(EXIT_FAILURE);
+    }
+
+    // STEP 4B: Now send the actual registration struct
     strcpy(reg_data.ss_ip, MY_IP);
     reg_data.client_port = MY_CLIENT_PORT;
 
     if (send(sock_fd, &reg_data, sizeof(reg_data), 0) < 0) {
-        perror("send failed");
+        perror("send registration data failed");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
 
     printf("Successfully registered with Name Server.\n");
+
+// ... rest of the file ...
 
     // 5. Close the connection
     close(sock_fd);

@@ -52,7 +52,7 @@ int main() {
 
     printf("Name Server listening on port %d...\n", NM_PORT);
 
-    // 4. Main accept loop
+ // 4. Main accept loop
     while (1) {
         client_len = sizeof(client_addr);
         conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
@@ -65,32 +65,61 @@ int main() {
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         printf("Received connection from %s\n", client_ip);
 
-        // 5. Receive registration data
-        ssize_t n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
+        // --- THIS IS THE NEW CODE YOU PASTED ---
+        
+        // 5. Receive connection type
+        message_type_t msg_type;
+        ssize_t n = recv(conn_fd, &msg_type, sizeof(message_type_t), 0);
 
-        if (n == sizeof(ss_registration_t)) {
-            // 6. Store and print the registration info
-            if (server_count < MAX_STORAGE_SERVERS) {
-                strcpy(server_list[server_count].ip, reg_data.ss_ip);
-                server_list[server_count].client_port = reg_data.client_port;
-                server_count++;
-
-                printf("-> Registered new Storage Server:\n");
-                printf("   IP = %s\n", reg_data.ss_ip);
-                printf("   Client Port = %d\n", reg_data.client_port);
-                printf("   Total SS count: %d\n\n", server_count);
-            } else {
-                printf("Storage server list is full. Ignoring new server.\n");
-            }
-        } else {
-            fprintf(stderr, "Error receiving registration data.\n");
+        if (n != sizeof(message_type_t)) {
+            fprintf(stderr, "Error receiving message type.\n");
+            close(conn_fd);
+            continue;
         }
 
-        // For this simple handshake, we close the connection.
-        // A real system might keep it for heartbeats.
-        close(conn_fd);
-    }
+        // 6. Route based on type
+        if (msg_type == MSG_SS_REGISTER) {
+            
+            // --- This is your OLD logic, now inside an IF block ---
+            ss_registration_t reg_data;
+            n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
 
+            if (n == sizeof(ss_registration_t)) {
+                if (server_count < MAX_STORAGE_SERVERS) {
+                    strcpy(server_list[server_count].ip, reg_data.ss_ip);
+                    server_list[server_count].client_port = reg_data.client_port;
+                    server_count++;
+
+                    printf("-> Registered new Storage Server:\n");
+                    printf("   IP = %s\n", reg_data.ss_ip);
+                    printf("   Client Port = %d\n", reg_data.client_port);
+                    printf("   Total SS count: %d\n\n", server_count);
+                } else {
+                    printf("Storage server list is full. Ignoring new server.\n");
+                }
+            } else {
+                fprintf(stderr, "Error receiving SS registration data.\n");
+            }
+            // --- End of OLD logic ---
+
+        } else if (msg_type == MSG_CLIENT_REQUEST) {
+            
+            // --- This is the NEW logic for the client handshake ---
+            printf("-> Received a connection from a Client!\n");
+            
+            // For now, we don't expect any more data.
+            // In the future, you'll recv() a client_request_t struct here.
+            
+        } else {
+            fprintf(stderr, "Unknown message type received: %d\n", msg_type);
+        }
+
+        // For this simple system, we close the connection.
+        close(conn_fd);
+        
+        // --- END OF NEW CODE ---
+        
+    } // End of while(1) loop
     close(listen_fd);
     return 0;
 }
