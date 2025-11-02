@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <stdbool.h> // NEW
 #include "common.h"
 
 // --- Storage Server List ---
@@ -18,24 +19,22 @@ ss_info_t server_list[MAX_STORAGE_SERVERS];
 int server_count = 0;
 pthread_mutex_t server_list_mutex;
 
-// --- NEW: File Metadata List ---
-#define MAX_FILES 1000
+// --- File Metadata List ---
 typedef struct {
     char filename[MAX_FILENAME_LEN];
-    int ss_index; // Index into the server_list
+    char owner[MAX_USERNAME_LEN]; // NEW: Store the owner
+    int ss_index; 
 } file_info_t;
 
 file_info_t file_list[MAX_FILES];
 int file_count = 0;
-pthread_mutex_t file_list_mutex; // Mutex for the file list
+pthread_mutex_t file_list_mutex;
 
 
 /**
  * @brief Handles a CMD_CREATE_FILE request from a client.
- * Checks for duplicates, selects an SS, and stores metadata.
  */
-void handle_create_file(client_request_t req, nm_response_t* res) {
-    // --- CRITICAL SECTION: Lock file list ---
+void handle_create_file(nm_response_t* res, client_request_t req) {
     pthread_mutex_lock(&file_list_mutex);
 
     // 1. Check if file already exists
@@ -43,12 +42,12 @@ void handle_create_file(client_request_t req, nm_response_t* res) {
         if (strcmp(file_list[i].filename, req.filename) == 0) {
             res->status = STATUS_ERROR;
             strcpy(res->error_msg, "File already exists");
-            pthread_mutex_unlock(&file_list_mutex); // Unlock before returning
+            pthread_mutex_unlock(&file_list_mutex); 
             return;
         }
     }
 
-    // 2. Check if file list is full
+    // 2. Check capacity
     if (file_count >= MAX_FILES) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Name Server file capacity reached");
@@ -56,23 +55,23 @@ void handle_create_file(client_request_t req, nm_response_t* res) {
         return;
     }
 
-    // --- CRITICAL SECTION: Lock server list to read it ---
     pthread_mutex_lock(&server_list_mutex);
     
-    // 3. Check if any SS are available
+    // 3. Check for available SS
     if (server_count == 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "No Storage Servers available");
-        pthread_mutex_unlock(&server_list_mutex); // Unlock server list
-        pthread_mutex_unlock(&file_list_mutex);  // Unlock file list
+        pthread_mutex_unlock(&server_list_mutex); 
+        pthread_mutex_unlock(&file_list_mutex);  
         return;
     }
 
-    // 4. Select an SS (simple round-robin)
+    // 4. Select an SS
     int ss_idx = file_count % server_count;
 
     // 5. Store new file metadata
     strcpy(file_list[file_count].filename, req.filename);
+    strcpy(file_list[file_count].owner, req.username); // NEW: Store owner
     file_list[file_count].ss_index = ss_idx;
     file_count++;
 
@@ -81,15 +80,85 @@ void handle_create_file(client_request_t req, nm_response_t* res) {
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
 
-    printf("-> Metadata Added: File '%s' will be on SS#%d (%s:%d)\n", 
-           req.filename, ss_idx, res->ss_ip, res->ss_port);
+    printf("-> Metadata Added: File '%s' (Owner: %s) on SS#%d\n", 
+           req.filename, req.username, ss_idx);
 
-    pthread_mutex_unlock(&server_list_mutex); // Unlock server list
-    pthread_mutex_unlock(&file_list_mutex);  // Unlock file list
+    pthread_mutex_unlock(&server_list_mutex); 
+    pthread_mutex_unlock(&file_list_mutex);  
 }
 
 /**
- * @brief Handles a single connection (either SS or Client) in its own thread.
+ * @brief Handles a CMD_VIEW_FILES request from a client.
+ */
+void handle_view_files(int conn_fd, client_request_t req) {
+    nm_response_t res_header = {0};
+    nm_file_entry_t file_entry;
+    
+    int files_to_send_count = 0;
+    
+    // --- CRITICAL SECTION: Lock lists ---
+    pthread_mutex_lock(&file_list_mutex);
+    pthread_mutex_lock(&server_list_mutex);
+    
+    // 1. First, count how many files we need to send
+    if (req.view_all) { // -a flag
+        files_to_send_count = file_count;
+    } else { // User-only
+        for (int i = 0; i < file_count; i++) {
+            if (strcmp(file_list[i].owner, req.username) == 0) {
+                files_to_send_count++;
+            }
+        }
+    }
+    
+    res_header.status = STATUS_OK;
+    res_header.file_count = files_to_send_count;
+
+    // 2. Send the response header
+    if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
+        perror("send VIEW response header failed");
+        pthread_mutex_unlock(&server_list_mutex);
+        pthread_mutex_unlock(&file_list_mutex);
+        return;
+    }
+
+    // 3. Send each file entry one by one
+    printf("   Sending file list for user '%s' (%d files)...\n", req.username, files_to_send_count);
+    for (int i = 0; i < file_count; i++) {
+        
+        // Skip this file if it's not owned by user (and -a is not set)
+        if (!req.view_all && strcmp(file_list[i].owner, req.username) != 0) {
+            continue;
+        }
+
+        // This is a file we need to send. Populate the entry.
+        int ss_idx = file_list[i].ss_index;
+        
+        // Check for invalid SS index (if SS disconnected, etc.)
+        if (ss_idx >= server_count) {
+             fprintf(stderr, "   Skipping file '%s' with invalid ss_index %d\n", file_list[i].filename, ss_idx);
+             continue;
+        }
+
+        strcpy(file_entry.filename, file_list[i].filename);
+        strcpy(file_entry.owner, file_list[i].owner);
+        strcpy(file_entry.ss_ip, server_list[ss_idx].ip);
+        file_entry.ss_port = server_list[ss_idx].client_port;
+        
+        if (send(conn_fd, &file_entry, sizeof(nm_file_entry_t), 0) < 0) {
+            perror("send file entry failed");
+            break; 
+        }
+    }
+    
+    pthread_mutex_unlock(&server_list_mutex);
+    pthread_mutex_unlock(&file_list_mutex);
+    printf("   File list sent.\n");
+}
+
+
+/**
+ * @brief Handles a single connection (either SS or Client).
  */
 void* handle_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
@@ -97,25 +166,19 @@ void* handle_connection(void* p_conn_fd) {
 
     message_type_t msg_type;
     ssize_t n = recv(conn_fd, &msg_type, sizeof(message_type_t), 0);
-
-    if (n != sizeof(message_type_t)) {
-        fprintf(stderr, "Error receiving message type.\n");
-        close(conn_fd);
-        return NULL;
-    }
+    // ... (error check n) ...
 
     if (msg_type == MSG_SS_REGISTER) {
-        // --- Storage Server Registration ---
+        // --- SS Registration (Unchanged) ---
         ss_registration_t reg_data;
         n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
-
-        if (n == sizeof(ss_registration_t)) {
+        // ... (rest of SS registration logic) ...
+         if (n == sizeof(ss_registration_t)) {
             pthread_mutex_lock(&server_list_mutex); 
             if (server_count < MAX_STORAGE_SERVERS) {
                 strcpy(server_list[server_count].ip, reg_data.ss_ip);
                 server_list[server_count].client_port = reg_data.client_port;
                 server_count++;
-
                 printf("-> Registered new Storage Server:\n");
                 printf("   IP = %s, Client Port = %d, Total SS count: %d\n\n", 
                        reg_data.ss_ip, reg_data.client_port, server_count);
@@ -132,29 +195,36 @@ void* handle_connection(void* p_conn_fd) {
         printf("-> Received a connection from a Client!\n");
 
         client_request_t req;
-        nm_response_t res = {0}; // Zero-initialize the response
+        nm_response_t res = {0};
+        int response_sent_by_handler = 0; 
 
-        // 1. Receive the client's command
         n = recv(conn_fd, &req, sizeof(client_request_t), 0);
-        if (n != sizeof(client_request_t)) {
-            fprintf(stderr, "Error receiving client request.\n");
-            close(conn_fd);
-            return NULL;
-        }
+        // ... (error check n) ...
 
-        // 2. Route to the correct handler based on command
         if (req.command == CMD_CREATE_FILE) {
-            printf("   Handling CMD_CREATE_FILE for '%s'\n", req.filename);
-            handle_create_file(req, &res);
+            printf("   Handling CMD_CREATE_FILE for '%s' (User: %s)\n", req.filename, req.username);
+            handle_create_file(&res, req); 
+        
+        } else if (req.command == CMD_VIEW_FILES) {
+            printf("   Handling CMD_VIEW_FILES (User: %s, all: %d, long: %d)\n", 
+                   req.username, req.view_all, req.view_long);
+            handle_view_files(conn_fd, req); 
+            response_sent_by_handler = 1;
+
+        } else if (req.command == CMD_DELETE_FILE) {
+            // TODO: Implement handle_delete_file
+            res.status = STATUS_ERROR;
+            strcpy(res.error_msg, "DELETE command not yet implemented");
+
         } else {
-            // Handle other commands (DELETE, READ, etc.) here
             res.status = STATUS_ERROR;
             strcpy(res.error_msg, "Unknown command");
         }
         
-        // 3. Send the response back to the client
-        if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
-            perror("send NM response failed");
+        if (!response_sent_by_handler) {
+            if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
+                perror("send NM response failed");
+            }
         }
         
     } else {
@@ -165,7 +235,15 @@ void* handle_connection(void* p_conn_fd) {
     return NULL;
 }
 
+// ------------------------------------------------------------------
+// --- Main Function (Unchanged) ---
+// ------------------------------------------------------------------
 int main() {
+    // ... (All your main() code is unchanged) ...
+    // ... (socket, setsockopt, bind, listen) ...
+    // ... (mutex inits) ...
+    // ... (while(1) accept loop with pthread_create) ...
+
     int listen_fd, conn_fd;
     struct sockaddr_in serv_addr, client_addr;
     socklen_t client_len;

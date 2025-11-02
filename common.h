@@ -3,6 +3,8 @@
 
 #include <unistd.h> // For ssize_t
 #include <pthread.h>
+#include <stdbool.h> 
+#include <time.h>   // NEW: For time_t
 
 // --- Network Configuration ---
 #define NM_PORT 8080
@@ -11,21 +13,21 @@
 // --- File System Limits ---
 #define MAX_FILENAME_LEN 256
 #define MAX_ERROR_MSG_LEN 256
+#define MAX_FILES 1000
+#define MAX_USERNAME_LEN 50 
 
 // --- Message Types (Client <-> NM Handshake) ---
 typedef enum {
     MSG_SS_REGISTER,
-    MSG_CLIENT_NM_REQUEST // Renamed from MSG_CLIENT_REQUEST
+    MSG_CLIENT_NM_REQUEST 
 } message_type_t;
 
 // --- Client Command Types ---
 typedef enum {
     CMD_CREATE_FILE,
-    // Future commands will go here:
-    // CMD_DELETE_FILE,
-    // CMD_READ_FILE,
-    // CMD_WRITE_FILE,
-    // CMD_LIST_FILES
+    CMD_VIEW_FILES,
+    CMD_DELETE_FILE,
+    CMD_GET_STATS   // NEW: Client asks SS for file details
 } client_command_t;
 
 // --- General Status Codes ---
@@ -43,33 +45,61 @@ typedef struct {
 
 // --- Structs for Client <-> NM Communication ---
 
-// Client sends this to NM (after the initial handshake)
+// Client sends this to NM
 typedef struct {
     client_command_t command;
+    char username[MAX_USERNAME_LEN]; 
     char filename[MAX_FILENAME_LEN];
-    // Other fields for read/write (e.g., size_t size) can be added later
+
+    bool view_all; // -a
+    bool view_long; // -l
 } client_request_t;
 
 // NM sends this back to Client
 typedef struct {
     response_status_t status;
-    char error_msg[MAX_ERROR_MSG_LEN]; // If status is STATUS_ERROR
+    char error_msg[MAX_ERROR_MSG_LEN]; 
 
-    // Info for the client to connect directly to an SS
     char ss_ip[MAX_IP_LEN];
     int ss_port;
+
+    int file_count;
 } nm_response_t;
+
+// NM sends this for each file in a VIEW list
+typedef struct {
+    char filename[MAX_FILENAME_LEN];
+    char owner[MAX_USERNAME_LEN]; 
+    
+    char ss_ip[MAX_IP_LEN];
+    int ss_port;
+} nm_file_entry_t;
 
 
 // --- Structs for Client <-> SS Communication ---
 
-// Client sends this to SS (NOTE: We can reuse client_request_t)
-// typedef client_request_t client_ss_request_t; 
+// Client -> SS: client_request_t is re-used
 
-// SS sends this back to Client
+// SS -> Client (for CREATE/DELETE)
 typedef struct {
     response_status_t status;
-    char error_msg[MAX_ERROR_MSG_LEN]; // If status is STATUS_ERROR
+    char error_msg[MAX_ERROR_MSG_LEN]; 
 } ss_response_t;
+
+// NEW: Struct for file statistics
+typedef struct {
+    long char_count;
+    long word_count;
+    long line_count;
+    time_t last_modified;
+} ss_file_stats_t;
+
+// NEW: SS -> Client (for GET_STATS)
+typedef struct {
+    response_status_t status;
+    char error_msg[MAX_ERROR_MSG_LEN];
+    ss_file_stats_t stats; // The stats payload
+} ss_stats_response_t;
+
 
 #endif // COMMON_H
