@@ -5,36 +5,29 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <pthread.h>
-#include <sys/stat.h> // NEW: For stat()
-#include <ctype.h>    // NEW: For isspace()
+#include <sys/stat.h> 
+#include <ctype.h>    
 #include "common.h"
 
-// ... (Your #defines for MY_IP, MY_CLIENT_PORT, NM_IP are all fine) ...
 #define MY_IP "127.0.0.1"
 #define MY_CLIENT_PORT 9090 
 #define NM_IP "127.0.0.1"
 
-
-/**
- * @brief NEW: Helper function to count words and lines in a file.
- */
+// ... (get_file_counts helper function is unchanged) ...
 void get_file_counts(const char* filename, long* word_count, long* line_count) {
     FILE* fp = fopen(filename, "r");
     *word_count = 0;
     *line_count = 0;
-    
     if (fp == NULL) {
         perror("   [SS-Thread]: get_file_counts fopen failed");
-        return; // Counts remain 0
+        return; 
     }
-
     int c;
     bool in_word = false;
     while ((c = fgetc(fp)) != EOF) {
         if (c == '\n') {
             (*line_count)++;
         }
-
         if (isspace(c)) {
             in_word = false;
         } else if (!in_word) {
@@ -42,9 +35,7 @@ void get_file_counts(const char* filename, long* word_count, long* line_count) {
             (*word_count)++;
         }
     }
-    // Handle files that don't end with a newline
     if (*line_count == 0 && *word_count > 0) *line_count = 1;
-
     fclose(fp);
 }
 
@@ -59,9 +50,8 @@ void* handle_client_connection(void* p_conn_fd) {
     printf("   [SS-Thread]: Got a connection! (conn_fd: %d)\n", conn_fd);
 
     client_request_t req;
-    bool response_sent = false; // NEW: Flag to handle different response types
+    bool response_sent = false; 
 
-    // 1. Receive the request from the client
     ssize_t n = recv(conn_fd, &req, sizeof(client_request_t), 0);
     if (n != sizeof(client_request_t)) {
         fprintf(stderr, "   [SS-Thread]: Error receiving client request.\n");
@@ -69,13 +59,11 @@ void* handle_client_connection(void* p_conn_fd) {
         return NULL;
     }
 
-    // 2. Process the command
     if (req.command == CMD_CREATE_FILE) {
+        // ... (CREATE logic is unchanged) ...
         printf("   [SS-Thread]: Handling CMD_CREATE_FILE for '%s'\n", req.filename);
-        
-        ss_response_t res = {0}; // Use simple response
+        ss_response_t res = {0}; 
         FILE* fp = fopen(req.filename, "w"); 
-        
         if (fp == NULL) {
             perror("   [SS-Thread]: fopen failed");
             res.status = STATUS_ERROR;
@@ -85,20 +73,16 @@ void* handle_client_connection(void* p_conn_fd) {
             res.status = STATUS_OK;
             printf("   [SS-Thread]: Successfully created file '%s'\n", req.filename);
         }
-        
-        // Send the simple response
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
             perror("   [SS-Thread]: send create response failed");
         }
         response_sent = true;
 
     } else if (req.command == CMD_GET_STATS) {
+        // ... (GET_STATS logic is unchanged) ...
         printf("   [SS-Thread]: Handling CMD_GET_STATS for '%s'\n", req.filename);
-        
-        ss_stats_response_t res = {0}; // Use NEW stats response
+        ss_stats_response_t res = {0}; 
         struct stat file_stat;
-
-        // 1. Get stats from the OS (size, time)
         if (stat(req.filename, &file_stat) < 0) {
             perror("   [SS-Thread]: stat failed");
             res.status = STATUS_ERROR;
@@ -107,22 +91,64 @@ void* handle_client_connection(void* p_conn_fd) {
             res.status = STATUS_OK;
             res.stats.char_count = file_stat.st_size;
             res.stats.last_modified = file_stat.st_mtime;
-            
-            // 2. Get custom stats (word/line counts)
             get_file_counts(req.filename, &res.stats.word_count, &res.stats.line_count);
             printf("   [SS-Thread]: Stats for '%s': %ld chars, %ld words, %ld lines\n",
                    req.filename, res.stats.char_count, res.stats.word_count, res.stats.line_count);
         }
-        
-        // Send the stats response
         if (send(conn_fd, &res, sizeof(ss_stats_response_t), 0) < 0) {
             perror("   [SS-Thread]: send stats response failed");
         }
         response_sent = true;
+
+    } else if (req.command == CMD_READ_FILE) { // NEW
+        printf("   [SS-Thread]: Handling CMD_READ_FILE for '%s'\n", req.filename);
+        
+        ss_response_t header_res = {0};
+        FILE* fp = fopen(req.filename, "r");
+
+        if (fp == NULL) {
+            // 1. Send Error Header
+            perror("   [SS-Thread]: fopen failed for read");
+            header_res.status = STATUS_ERROR;
+            strcpy(header_res.error_msg, "File not found or unreadable on Storage Server");
+            if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
+                perror("   [SS-Thread]: send read error response failed");
+            }
+        } else {
+            // 2. Send OK Header
+            header_res.status = STATUS_OK;
+            if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
+                perror("   [SS-Thread]: send read OK response failed");
+                fclose(fp);
+                close(conn_fd);
+                return NULL;
+            }
+
+            // 3. Send Data Chunks
+            ss_file_data_chunk_t chunk;
+            size_t bytes_read;
+            while ((bytes_read = fread(chunk.data, 1, FILE_BUFFER_SIZE, fp)) > 0) {
+                chunk.data_size = bytes_read;
+                if (send(conn_fd, &chunk, sizeof(ss_file_data_chunk_t), 0) < 0) {
+                    perror("   [SS-Thread]: send data chunk failed");
+                    break; // Client disconnected
+                }
+            }
+
+            // 4. Send Terminator Chunk
+            chunk.data_size = 0;
+            if (send(conn_fd, &chunk, sizeof(ss_file_data_chunk_t), 0) < 0) {
+                perror("   [SS-Thread]: send terminator chunk failed");
+            }
+            
+            fclose(fp);
+            printf("   [SS-Thread]: File '%s' sent successfully.\n", req.filename);
+        }
+        response_sent = true;
     } 
 
-    // 3. Send a generic error if command wasn't handled
     if (!response_sent) {
+        // ... (Generic error logic is unchanged) ...
         ss_response_t res = {0};
         res.status = STATUS_ERROR;
         strcpy(res.error_msg, "Unknown command received by SS");
@@ -141,11 +167,10 @@ void* handle_client_connection(void* p_conn_fd) {
 // --- Main Function (No changes needed) ---
 // ------------------------------------------------------------------
 int main() {
-    // ... (Your existing PART 1: Register with Name Server is unchanged) ...
+    // ... (All your main() code is unchanged) ...
     int sock_fd;
     struct sockaddr_in nm_addr;
     ss_registration_t reg_data;
-
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         perror("socket creation failed");
@@ -179,13 +204,9 @@ int main() {
     }
     printf("Successfully registered with Name Server.\n");
     close(sock_fd);
-
-
-    // ... (Your existing PART 2: Become a Server for Clients is unchanged) ...
     int listen_fd, conn_fd;
     struct sockaddr_in ss_serv_addr, client_addr;
     socklen_t client_len;
-
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) {
         perror("SS server socket creation failed");
@@ -205,7 +226,6 @@ int main() {
         exit(EXIT_FAILURE);
     }
     printf("\n[SS-Main]: Storage Server now listening for clients on port %d...\n", MY_CLIENT_PORT);
-
     while (1) {
         client_len = sizeof(client_addr);
         conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
@@ -216,18 +236,15 @@ int main() {
         char client_ip[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
         printf("[SS-Main]: Accepted new client connection from %s\n", client_ip);
-
         pthread_t tid;
         int* p_conn_fd = malloc(sizeof(int));
         *p_conn_fd = conn_fd;
-        
         if (pthread_create(&tid, NULL, handle_client_connection, p_conn_fd) != 0) {
             perror("pthread_create failed");
             free(p_conn_fd);
         }
         pthread_detach(tid);
     }
-
     close(listen_fd);
     return 0;
 }
