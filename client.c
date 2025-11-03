@@ -12,22 +12,23 @@
 // NM_PORT is from common.h
 
 /**
- * @brief Prints the usage of the client program.
+ * @brief Prints the available commands in the interactive shell.
  */
-void print_usage(char* prog_name) {
-    fprintf(stderr, "Usage: %s <username> <COMMAND> [options]\n\n", prog_name);
-    fprintf(stderr, "Commands:\n");
-    fprintf(stderr, "  CREATE <filename>\n");
-    fprintf(stderr, "  VIEW [-a] [-l]\n");
-    fprintf(stderr, "  READ <filename>\n"); // NEW
-    fprintf(stderr, "  DELETE <filename>\n");
+void print_help() {
+    printf("--- Network File System Client ---\n");
+    printf("Available Commands:\n");
+    printf("  CREATE <filename>\n");
+    printf("  VIEW [-a] [-l] [-al]\n");
+    printf("  READ <filename>\n");
+    printf("  DELETE <filename>\n");
+    printf("  help     (Show this message)\n");
+    printf("  exit     (Quit the client)\n\n");
 }
 
 /**
  * @brief Connects to a server at the given IP and port.
  */
 int connect_to_server(char* ip, int port) {
-    // ... (unchanged) ...
     int sock_fd;
     struct sockaddr_in serv_addr;
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -44,235 +45,323 @@ int connect_to_server(char* ip, int port) {
         return -1;
     }
     if (connect(sock_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        // We will print our own error messages
         close(sock_fd);
         return -1;
     }
     return sock_fd;
 }
 
+// =================================================================
+// --- Command Handler Functions ---
+// =================================================================
+
 /**
- * @brief Parses flags for the VIEW command.
+ * @brief Handles the entire CREATE command flow.
  */
-void parse_view_flags(int argc, char* argv[], client_request_t* req) {
-    // ... (unchanged) ...
-    req->view_all = false;
-    req->view_long = false;
-    for (int i = 3; i < argc; i++) {
-        if (strcmp(argv[i], "-a") == 0) {
-            req->view_all = true;
-        } else if (strcmp(argv[i], "-l") == 0) {
-            req->view_long = true;
-        } else if (strcmp(argv[i], "-al") == 0 || strcmp(argv[i], "-la") == 0) {
-            req->view_all = true;
-            req->view_long = true;
-        }
+void do_create(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_CREATE_FILE;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
+    // --- STEP 1: Connect to Name Server ---
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Name Server.\n");
+        return;
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+        perror("recv response header from NM failed");
+        close(nm_sock_fd);
+        return;
+    }
+    close(nm_sock_fd); // Done with NM
+
+    if (nm_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg);
+        return;
+    }
+
+    // --- STEP 2: Connect to Storage Server ---
+    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port);
+        return;
+    }
+
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    ss_response_t ss_res;
+    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("recv response from SS failed");
+        close(ss_sock_fd);
+        return;
+    }
+    close(ss_sock_fd);
+
+    if (ss_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Storage Server]: %s\n", ss_res.error_msg);
+    } else {
+        printf("Success! File '%s' created.\n", req.filename);
     }
 }
 
-
-int main(int argc, char *argv[]) {
-    // 1. Validate and parse command-line arguments
-    if (argc < 3) { 
-        print_usage(argv[0]);
-        exit(EXIT_FAILURE);
-    }
-    
+/**
+ * @brief Handles the entire VIEW command flow.
+ */
+void do_view(const char* username, bool view_all, bool view_long) {
     client_request_t req = {0};
-    strncpy(req.username, argv[1], MAX_USERNAME_LEN - 1);
-    char* command_str = argv[2];
+    req.command = CMD_VIEW_FILES;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    req.view_all = view_all;
+    req.view_long = view_long;
 
-    if (strcmp(command_str, "CREATE") == 0 && argc == 4) {
-        req.command = CMD_CREATE_FILE;
-        strncpy(req.filename, argv[3], MAX_FILENAME_LEN - 1);
-    
-    } else if (strcmp(command_str, "VIEW") == 0) {
-        req.command = CMD_VIEW_FILES;
-        parse_view_flags(argc, argv, &req);
-    
-    } else if (strcmp(command_str, "READ") == 0 && argc == 4) { // NEW
-        req.command = CMD_READ_FILE;
-        strncpy(req.filename, argv[3], MAX_FILENAME_LEN - 1);
-
-    } else if (strcmp(command_str, "DELETE") == 0 && argc == 4) {
-        req.command = CMD_DELETE_FILE;
-        strncpy(req.filename, argv[3], MAX_FILENAME_LEN - 1);
-
-    } else {
-        fprintf(stderr, "Error: Unknown command or incorrect arguments\n");
-        print_usage(argv[0]);
-        exit(EXIT_FAILURE);
-    }
-
-    // -------------------------------------------------
     // --- STEP 1: Connect to Name Server ---
-    // (Unchanged)
-    // -------------------------------------------------
-    printf("Connecting to Name Server as user '%s'...\n", req.username);
     int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
     if (nm_sock_fd < 0) {
-        perror("Connection to Name Server failed");
-        exit(EXIT_FAILURE);
+        fprintf(stderr, "Error: Could not connect to Name Server.\n");
+        return;
     }
 
-    printf("Connected to Name Server!\n");
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
-    if (send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0) < 0) {
-        perror("send handshake failed"); close(nm_sock_fd); exit(EXIT_FAILURE);
-    }
-    if (send(nm_sock_fd, &req, sizeof(client_request_t), 0) < 0) {
-        perror("send request to NM failed"); close(nm_sock_fd); exit(EXIT_FAILURE);
-    }
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
     nm_response_t nm_res;
     if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
-        perror("recv response header from NM failed"); close(nm_sock_fd); exit(EXIT_FAILURE);
+        perror("recv response header from NM failed");
+        close(nm_sock_fd);
+        return;
     }
+
     if (nm_res.status == STATUS_ERROR) {
         fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg);
         close(nm_sock_fd);
+        return;
+    }
+
+    // --- STEP 2: Process VIEW response ---
+    int count = nm_res.file_count;
+    printf("\n--- File List (%d files) ---\n", count);
+    
+    if (count == 0) {
+        printf("(No files found)\n");
+    } else {
+        if (req.view_long) {
+            printf("%-12s | %-20s | %-7s | %-7s | %-7s | %-19s\n",
+                   "OWNER", "FILE", "CHARS", "WORDS", "LINES", "LAST MODIFIED");
+            printf("-------------------------------------------------------------------------------------------\n");
+        }
+
+        nm_file_entry_t file_entry;
+        for (int i = 0; i < count; i++) {
+            if (recv(nm_sock_fd, &file_entry, sizeof(nm_file_entry_t), 0) != sizeof(nm_file_entry_t)) {
+                perror("recv file entry failed");
+                break;
+            }
+            
+            if (req.view_long) {
+                printf("%-12s | %-20s |", file_entry.owner, file_entry.filename);
+                
+                // --- STEP 3: Connect to SS for stats ---
+                int ss_sock_fd = connect_to_server(file_entry.ss_ip, file_entry.ss_port);
+                if (ss_sock_fd < 0) {
+                    printf(" (Stats unavailable: SS at %s:%d is down)\n", file_entry.ss_ip, file_entry.ss_port);
+                    continue;
+                }
+                
+                client_request_t stats_req = {0};
+                stats_req.command = CMD_GET_STATS;
+                strncpy(stats_req.filename, file_entry.filename, MAX_FILENAME_LEN - 1);
+                send(ss_sock_fd, &stats_req, sizeof(client_request_t), 0);
+
+                ss_stats_response_t stats_res;
+                if (recv(ss_sock_fd, &stats_res, sizeof(ss_stats_response_t), 0) != sizeof(ss_stats_response_t)) {
+                    printf(" (Error receiving stats)\n");
+                    close(ss_sock_fd);
+                    continue;
+                }
+                close(ss_sock_fd);
+
+                if (stats_res.status == STATUS_OK) {
+                    char time_str[30];
+                    strftime(time_str, 30, "%Y-%m-%d %H:%M", localtime(&stats_res.stats.last_modified));
+                    printf(" %-7ld | %-7ld | %-7ld | %s\n",
+                           stats_res.stats.char_count,
+                           stats_res.stats.word_count,
+                           stats_res.stats.line_count,
+                           time_str);
+                } else {
+                    printf(" (Error: %s)\n", stats_res.error_msg);
+                }
+            } else {
+                printf(" - %s\n", file_entry.filename);
+            }
+        }
+    }
+    printf("-------------------------------------------------------------------------------------------\n");
+    close(nm_sock_fd); // Close NM socket after loop
+}
+
+/**
+ * @brief Handles the entire READ command flow.
+ */
+void do_read(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_READ_FILE;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
+    // --- STEP 1: Connect to Name Server ---
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Name Server.\n");
+        return;
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+        perror("recv response header from NM failed");
+        close(nm_sock_fd);
+        return;
+    }
+    close(nm_sock_fd); // Done with NM
+
+    if (nm_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg);
+        return;
+    }
+
+    // --- STEP 2: Connect to Storage Server ---
+    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port);
+        return;
+    }
+
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    ss_response_t header_res;
+    if (recv(ss_sock_fd, &header_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("recv header response from SS failed");
+        close(ss_sock_fd);
+        return;
+    }
+
+    if (header_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Storage Server]: %s\n", header_res.error_msg);
+        close(ss_sock_fd);
+        return;
+    }
+
+    // --- STEP 3: Receive and print file data ---
+    printf("\n--- Content of %s ---\n", req.filename);
+    ss_file_data_chunk_t chunk;
+    while (1) {
+        ssize_t n = recv(ss_sock_fd, &chunk, sizeof(ss_file_data_chunk_t), 0);
+        if (n < 0) {
+            perror("recv data chunk failed");
+            break;
+        }
+        if (n == 0 || chunk.data_size == 0) {
+            break; // End of file
+        }
+        fwrite(chunk.data, 1, chunk.data_size, stdout);
+    }
+    printf("\n--- End of File ---\n");
+    close(ss_sock_fd);
+}
+
+
+// =================================================================
+// --- Main Interactive Loop ---
+// =================================================================
+
+int main(int argc, char *argv[]) {
+    char username[MAX_USERNAME_LEN];
+    char input_line[1024];
+    
+    // 1. Get username at startup
+    printf("Enter your username: ");
+    if (fgets(username, MAX_USERNAME_LEN, stdin) == NULL) {
         exit(EXIT_FAILURE);
     }
+    username[strcspn(username, "\n")] = 0; // Remove newline
 
-    // -------------------------------------------------
-    // --- STEP 2: Process the NM's response ---
-    // -------------------------------------------------
+    printf("Welcome, %s! Type 'help' for commands.\n", username);
 
-    if (req.command == CMD_CREATE_FILE) {
-        // --- CREATE logic (Unchanged) ---
-        printf("NM approved. Contacting Storage Server at %s:%d...\n", nm_res.ss_ip, nm_res.ss_port);
-        close(nm_sock_fd); 
-        int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
-        if (ss_sock_fd < 0) {
-             perror("Connection to Storage Server failed");
-             exit(EXIT_FAILURE);
+    // 2. Start main command loop
+    while (1) {
+        printf("(%s@nfs) > ", username);
+        
+        if (fgets(input_line, sizeof(input_line), stdin) == NULL) {
+            break; // EOF (e.g., Ctrl+D)
         }
-        printf("Connected to Storage Server!\n");
-        if (send(ss_sock_fd, &req, sizeof(client_request_t), 0) < 0) {
-            perror("send request to SS failed"); close(ss_sock_fd); exit(EXIT_FAILURE);
+        
+        // --- Parse the command ---
+        char* command = strtok(input_line, " \n");
+        if (command == NULL) {
+            continue; // Empty line
         }
-        ss_response_t ss_res;
-        if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
-            perror("recv response from SS failed"); close(ss_sock_fd); exit(EXIT_FAILURE);
-        }
-        close(ss_sock_fd); 
-        if (ss_res.status == STATUS_ERROR) {
-            fprintf(stderr, "[Error from Storage Server]: %s\n", ss_res.error_msg);
-            exit(EXIT_FAILURE);
-        }
-        printf("\nSuccess! File '%s' created.\n", req.filename);
 
-    } else if (req.command == CMD_VIEW_FILES) {
-        // --- VIEW logic (Unchanged) ---
-        // ... (This whole block is unchanged) ...
-        int count = nm_res.file_count;
-        printf("\n--- File List (%d files) ---\n", count);
-        if (count == 0) {
-            printf("(No files found)\n");
+        if (strcmp(command, "exit") == 0) {
+            break; // Exit loop
+        
+        } else if (strcmp(command, "help") == 0) {
+            print_help();
+        
+        } else if (strcmp(command, "CREATE") == 0) {
+            char* filename = strtok(NULL, " \n");
+            if (filename == NULL) {
+                fprintf(stderr, "Usage: CREATE <filename>\n");
+            } else {
+                do_create(username, filename);
+            }
+        
+        } else if (strcmp(command, "VIEW") == 0) {
+            bool view_all = false;
+            bool view_long = false;
+            char* flag = strtok(NULL, " \n");
+            
+            while (flag != NULL) {
+                if (strcmp(flag, "-a") == 0) view_all = true;
+                else if (strcmp(flag, "-l") == 0) view_long = true;
+                else if (strcmp(flag, "-al") == 0 || strcmp(flag, "-la") == 0) {
+                    view_all = true;
+                    view_long = true;
+                }
+                flag = strtok(NULL, " \n");
+            }
+            do_view(username, view_all, view_long);
+        
+        } else if (strcmp(command, "READ") == 0) {
+            char* filename = strtok(NULL, " \n");
+            if (filename == NULL) {
+                fprintf(stderr, "Usage: READ <filename>\n");
+            } else {
+                do_read(username, filename);
+            }
+        
+        } else if (strcmp(command, "DELETE") == 0) {
+            fprintf(stderr, "DELETE command is not implemented yet.\n");
+            // TODO: Add do_delete(username, filename);
+        
         } else {
-            if (req.view_long) {
-                printf("%-12s | %-20s | %-7s | %-7s | %-7s | %-19s\n",
-                       "OWNER", "FILE", "CHARS", "WORDS", "LINES", "LAST MODIFIED");
-                printf("-------------------------------------------------------------------------------------------\n");
-            }
-            nm_file_entry_t file_entry;
-            for (int i = 0; i < count; i++) {
-                if(recv(nm_sock_fd, &file_entry, sizeof(nm_file_entry_t), 0) != sizeof(nm_file_entry_t)) {
-                     perror("recv file entry failed"); break;
-                }
-                if (req.view_long) {
-                    printf("%-12s | %-20s |", file_entry.owner, file_entry.filename);
-                    int ss_sock_fd = connect_to_server(file_entry.ss_ip, file_entry.ss_port);
-                    if (ss_sock_fd < 0) {
-                        printf(" (Stats unavailable: SS at %s:%d is down)\n", file_entry.ss_ip, file_entry.ss_port);
-                        continue;
-                    }
-                    client_request_t stats_req = {0};
-                    stats_req.command = CMD_GET_STATS;
-                    strncpy(stats_req.filename, file_entry.filename, MAX_FILENAME_LEN - 1);
-                    send(ss_sock_fd, &stats_req, sizeof(client_request_t), 0);
-                    ss_stats_response_t stats_res;
-                    if(recv(ss_sock_fd, &stats_res, sizeof(ss_stats_response_t), 0) != sizeof(ss_stats_response_t)) {
-                        printf(" (Error receiving stats)\n");
-                        close(ss_sock_fd);
-                        continue;
-                    }
-                    close(ss_sock_fd);
-                    if (stats_res.status == STATUS_OK) {
-                        char time_str[30];
-                        strftime(time_str, 30, "%Y-%m-%d %H:%M", localtime(&stats_res.stats.last_modified));
-                        printf(" %-7ld | %-7ld | %-7ld | %s\n",
-                               stats_res.stats.char_count,
-                               stats_res.stats.word_count,
-                               stats_res.stats.line_count,
-                               time_str);
-                    } else {
-                        printf(" (Error: %s)\n", stats_res.error_msg);
-                    }
-                } else {
-                    printf(" - %s\n", file_entry.filename);
-                }
-            }
+            fprintf(stderr, "Unknown command: '%s'. Type 'help' for commands.\n", command);
         }
-        printf("-------------------------------------------------------------------------------------------\n");
-        close(nm_sock_fd); 
-
-    } else if (req.command == CMD_READ_FILE) { // NEW
-        // --- READ logic ---
-        printf("NM approved. Contacting Storage Server at %s:%d...\n", nm_res.ss_ip, nm_res.ss_port);
-        close(nm_sock_fd); // We are done with the NM
-
-        int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
-        if (ss_sock_fd < 0) {
-            perror("Connection to Storage Server failed");
-            exit(EXIT_FAILURE);
-        }
-
-        // 1. Send the read request
-        if (send(ss_sock_fd, &req, sizeof(client_request_t), 0) < 0) {
-            perror("send request to SS failed");
-            close(ss_sock_fd);
-            exit(EXIT_FAILURE);
-        }
-
-        // 2. Receive the header response (OK or Error)
-        ss_response_t header_res;
-        if (recv(ss_sock_fd, &header_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
-            perror("recv header response from SS failed");
-            close(ss_sock_fd);
-            exit(EXIT_FAILURE);
-        }
-
-        if (header_res.status == STATUS_ERROR) {
-            fprintf(stderr, "[Error from Storage Server]: %s\n", header_res.error_msg);
-            close(ss_sock_fd);
-            exit(EXIT_FAILURE);
-        }
-
-        // 3. Receive data chunks until the terminator (data_size == 0)
-        printf("\n--- Content of %s ---\n", req.filename);
-        ss_file_data_chunk_t chunk;
-        while (1) {
-            ssize_t n = recv(ss_sock_fd, &chunk, sizeof(ss_file_data_chunk_t), 0);
-            
-            if (n < 0) {
-                perror("recv data chunk failed");
-                break;
-            }
-            if (n == 0) {
-                fprintf(stderr, "Storage Server disconnected unexpectedly.\n");
-                break;
-            }
-            
-            if (chunk.data_size == 0) {
-                // Terminator chunk
-                break;
-            }
-            
-            // Print the received data to the screen
-            fwrite(chunk.data, 1, chunk.data_size, stdout);
-        }
-        printf("\n--- End of File ---\n");
-        close(ss_sock_fd);
     }
-    
+
+    printf("Goodbye, %s!\n", username);
     return 0;
 }
