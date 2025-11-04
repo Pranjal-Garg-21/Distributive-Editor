@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +9,6 @@
 #include <stdbool.h>
 #include "common.h"
 
-// ... (Global structs and handle_create_file, handle_view_files are unchanged) ...
 // --- Storage Server List ---
 #define MAX_STORAGE_SERVERS 10
 typedef struct {
@@ -22,61 +22,73 @@ typedef struct {
     char owner[MAX_USERNAME_LEN]; 
     int ss_index; 
 } file_info_t;
+
 ss_info_t server_list[MAX_STORAGE_SERVERS];
 int server_count = 0;
-pthread_mutex_t server_list_mutex;
+pthread_rwlock_t server_list_rwlock; // CHANGED
 
 file_info_t file_list[MAX_FILES];
 int file_count = 0;
-pthread_mutex_t file_list_mutex;
+pthread_rwlock_t file_list_rwlock; // CHANGED
 
 
 void handle_create_file(nm_response_t* res, client_request_t req) {
-    // ... (unchanged)
-    pthread_mutex_lock(&file_list_mutex);
+    // --- WRITE LOCK on file_list ---
+    pthread_rwlock_wrlock(&file_list_rwlock); // CHANGED
+    
     for (int i = 0; i < file_count; i++) {
         if (strcmp(file_list[i].filename, req.filename) == 0) {
             res->status = STATUS_ERROR;
             strcpy(res->error_msg, "File already exists");
-            pthread_mutex_unlock(&file_list_mutex); 
+            pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
             return;
         }
     }
     if (file_count >= MAX_FILES) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Name Server file capacity reached");
-        pthread_mutex_unlock(&file_list_mutex);
+        pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
         return;
     }
-    pthread_mutex_lock(&server_list_mutex);
+    
+    // --- READ LOCK on server_list ---
+    pthread_rwlock_rdlock(&server_list_rwlock); // CHANGED
+    
     if (server_count == 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "No Storage Servers available");
-        pthread_mutex_unlock(&server_list_mutex); 
-        pthread_mutex_unlock(&file_list_mutex);  
+        pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+        pthread_rwlock_unlock(&file_list_rwlock);  // CHANGED
         return;
     }
+    
+    // --- Continue with write logic for file_list ---
     int ss_idx = file_count % server_count;
     strcpy(file_list[file_count].filename, req.filename);
     strcpy(file_list[file_count].owner, req.username);
     file_list[file_count].ss_index = ss_idx;
     file_count++;
+    
+    // --- Continue with read logic for server_list ---
     res->status = STATUS_OK;
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     printf("-> Metadata Added: File '%s' (Owner: %s) on SS#%d\n", 
            req.filename, req.username, ss_idx);
-    pthread_mutex_unlock(&server_list_mutex); 
-    pthread_mutex_unlock(&file_list_mutex);  
+           
+    pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+    pthread_rwlock_unlock(&file_list_rwlock);  // CHANGED
 }
 
 void handle_view_files(int conn_fd, client_request_t req) {
-    // ... (unchanged) ...
     nm_response_t res_header = {0};
     nm_file_entry_t file_entry;
     int files_to_send_count = 0;
-    pthread_mutex_lock(&file_list_mutex);
-    pthread_mutex_lock(&server_list_mutex);
+    
+    // --- READ LOCKS on both lists ---
+    pthread_rwlock_rdlock(&file_list_rwlock); // CHANGED
+    pthread_rwlock_rdlock(&server_list_rwlock); // CHANGED
+    
     if (req.view_all) {
         files_to_send_count = file_count;
     } else { 
@@ -88,12 +100,14 @@ void handle_view_files(int conn_fd, client_request_t req) {
     }
     res_header.status = STATUS_OK;
     res_header.file_count = files_to_send_count;
+    
     if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
         perror("send VIEW response header failed");
-        pthread_mutex_unlock(&server_list_mutex);
-        pthread_mutex_unlock(&file_list_mutex);
+        pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+        pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
         return;
     }
+    
     printf("   Sending file list for user '%s' (%d files)...\n", req.username, files_to_send_count);
     for (int i = 0; i < file_count; i++) {
         if (!req.view_all && strcmp(file_list[i].owner, req.username) != 0) {
@@ -113,18 +127,17 @@ void handle_view_files(int conn_fd, client_request_t req) {
             break; 
         }
     }
-    pthread_mutex_unlock(&server_list_mutex);
-    pthread_mutex_unlock(&file_list_mutex);
+    
+    pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+    pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
     printf("   File list sent.\n");
 }
 
-/**
- * @brief NEW: Handles a CMD_READ_FILE request from a client.
- * Checks for file existence and read permission.
- */
+
 void handle_read_file(nm_response_t* res, client_request_t req) {
-    pthread_mutex_lock(&file_list_mutex);
-    pthread_mutex_lock(&server_list_mutex);
+    // --- READ LOCKS on both lists ---
+    pthread_rwlock_rdlock(&file_list_rwlock); // CHANGED
+    pthread_rwlock_rdlock(&server_list_rwlock); // CHANGED
 
     int file_idx = -1;
     // 1. Find the file
@@ -138,8 +151,8 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     if (file_idx == -1) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
-        pthread_mutex_unlock(&server_list_mutex); 
-        pthread_mutex_unlock(&file_list_mutex);
+        pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+        pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
         return;
     }
 
@@ -147,8 +160,8 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     if (strcmp(file_list[file_idx].owner, req.username) != 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Permission denied");
-        pthread_mutex_unlock(&server_list_mutex); 
-        pthread_mutex_unlock(&file_list_mutex);
+        pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+        pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
         return;
     }
 
@@ -157,8 +170,8 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     if (ss_idx >= server_count) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Storage Server for this file is currently offline");
-        pthread_mutex_unlock(&server_list_mutex); 
-        pthread_mutex_unlock(&file_list_mutex);
+        pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+        pthread_rwlock_unlock(&file_list_rwlock); // CHANGED
         return;
     }
 
@@ -169,32 +182,27 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     printf("-> Read Access Granted: File '%s' (User: %s) on SS#%d\n", 
            req.filename, req.username, ss_idx);
 
-    pthread_mutex_unlock(&server_list_mutex); 
-    pthread_mutex_unlock(&file_list_mutex);  
+    pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
+    pthread_rwlock_unlock(&file_list_rwlock);  // CHANGED
 }
 
 
-/**
- * @brief Handles a single connection (either SS or Client).
- */
 void* handle_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
     free(p_conn_fd);
 
     message_type_t msg_type;
     ssize_t n = recv(conn_fd, &msg_type, sizeof(message_type_t), 0);
-    if (n != sizeof(message_type_t)) {
-         fprintf(stderr, "Error receiving message type.\n");
-         close(conn_fd);
-         return NULL;
-    }
+    // ... (error handling) ...
 
     if (msg_type == MSG_SS_REGISTER) {
-        // ... (SS Registration logic is unchanged) ...
         ss_registration_t reg_data;
         n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
          if (n == sizeof(ss_registration_t)) {
-            pthread_mutex_lock(&server_list_mutex); 
+            
+            // --- WRITE LOCK on server_list ---
+            pthread_rwlock_wrlock(&server_list_rwlock); // CHANGED
+            
             if (server_count < MAX_STORAGE_SERVERS) {
                 strcpy(server_list[server_count].ip, reg_data.ss_ip);
                 server_list[server_count].client_port = reg_data.client_port;
@@ -205,7 +213,7 @@ void* handle_connection(void* p_conn_fd) {
             } else {
                 printf("Storage server list is full. Ignoring new server.\n");
             }
-            pthread_mutex_unlock(&server_list_mutex);
+            pthread_rwlock_unlock(&server_list_rwlock); // CHANGED
         } else {
             fprintf(stderr, "Error receiving SS registration data.\n");
         }
@@ -216,7 +224,10 @@ void* handle_connection(void* p_conn_fd) {
 
         client_request_t req;
         nm_response_t res = {0};
+        
+        // --- ADD THIS LINE ---
         int response_sent_by_handler = 0; 
+        // --- END ADD ---
 
         n = recv(conn_fd, &req, sizeof(client_request_t), 0);
         if (n != sizeof(client_request_t)) {
@@ -224,7 +235,6 @@ void* handle_connection(void* p_conn_fd) {
             close(conn_fd);
             return NULL;
         }
-
         if (req.command == CMD_CREATE_FILE) {
             printf("   Handling CMD_CREATE_FILE for '%s' (User: %s)\n", req.filename, req.username);
             handle_create_file(&res, req); 
@@ -235,67 +245,45 @@ void* handle_connection(void* p_conn_fd) {
             handle_view_files(conn_fd, req); 
             response_sent_by_handler = 1;
 
-        } else if (req.command == CMD_READ_FILE) { // NEW
+        } else if (req.command == CMD_READ_FILE) {
             printf("   Handling CMD_READ_FILE for '%s' (User: %s)\n", req.filename, req.username);
             handle_read_file(&res, req);
 
-        } else if (req.command == CMD_DELETE_FILE) {
-            // TODO: Implement handle_delete_file
-            res.status = STATUS_ERROR;
-            strcpy(res.error_msg, "DELETE command not yet implemented");
-
-        } else {
-            res.status = STATUS_ERROR;
-            strcpy(res.error_msg, "Unknown command");
-        }
+        } 
         
-        if (!response_sent_by_handler) {
-            if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
-                perror("send NM response failed");
-            }
-        }
-        
-    } else {
-        fprintf(stderr, "Unknown message type received: %d\n", msg_type);
+        // ... (rest of the if-else block) ...
     }
-
+    // ...
     close(conn_fd);
     return NULL;
 }
 
 // ------------------------------------------------------------------
-// --- Main Function (Unchanged) ---
+// --- Main Function (Init/Destroy) ---
 // ------------------------------------------------------------------
 int main() {
-    // ... (All your main() code is unchanged) ...
     int listen_fd, conn_fd;
     struct sockaddr_in serv_addr, client_addr;
     socklen_t client_len;
 
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0) {
-        perror("socket creation failed");
-        exit(EXIT_FAILURE);
-    }
+    // ... (error handling) ...
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
-    memset(&serv_addr, 0, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serv_addr.sin_port = htons(NM_PORT);
+    // ... (bind setup) ...
     if (bind(listen_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("bind failed");
-        exit(EXIT_FAILURE);
+        // ... (error handling) ...
     }
     if (listen(listen_fd, 5) < 0) {
-        perror("listen failed");
+        // ... (error handling) ...
+    }
+    
+    // --- CHANGED to use rwlock_init ---
+    if (pthread_rwlock_init(&server_list_rwlock, NULL) != 0) {
+        perror("server rwlock init failed");
         exit(EXIT_FAILURE);
     }
-    if (pthread_mutex_init(&server_list_mutex, NULL) != 0) {
-        perror("server mutex init failed");
-        exit(EXIT_FAILURE);
-    }
-    if (pthread_mutex_init(&file_list_mutex, NULL) != 0) {
-        perror("file mutex init failed");
+    if (pthread_rwlock_init(&file_list_rwlock, NULL) != 0) {
+        perror("file rwlock init failed");
         exit(EXIT_FAILURE);
     }
     printf("Name Server listening on port %d...\n", NM_PORT);
@@ -303,22 +291,18 @@ int main() {
     while (1) {
         client_len = sizeof(client_addr);
         conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
-        if (conn_fd < 0) {
-            perror("accept failed");
-            continue;
-        }
+        // ... (accept error handling) ...
+        
         pthread_t tid;
         int* p_conn_fd = malloc(sizeof(int));
         *p_conn_fd = conn_fd;
-        if (pthread_create(&tid, NULL, handle_connection, p_conn_fd) != 0) {
-             perror("pthread_create failed");
-             free(p_conn_fd);
-        }
+        // ... (pthread_create error handling) ...
         pthread_detach(tid);
     } 
     
     close(listen_fd);
-    pthread_mutex_destroy(&server_list_mutex);
-    pthread_mutex_destroy(&file_list_mutex);
+    // --- CHANGED to use rwlock_destroy ---
+    pthread_rwlock_destroy(&server_list_rwlock);
+    pthread_rwlock_destroy(&file_list_rwlock);
     return 0;
 }
