@@ -40,7 +40,8 @@ typedef enum {
     CMD_GET_STATS,
     CMD_WRITE_FILE,
     CMD_ADD_ACCESS,   // NEW
-    CMD_REM_ACCESS    // NEW
+    CMD_REM_ACCESS ,   // NEW
+    CMD_STREAM_FILE,
 } client_command_t;
 
 // --- NEW: Access Level Enum ---

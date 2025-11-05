@@ -8,84 +8,56 @@
 #include <sys/socket.h>
 #include <stdbool.h>
 #include "common.h"
-#include "uthash.h" // Make sure uthash.h is in the same directory
+#include "uthash.h" 
 
-// --- Storage Server List ---
+// --- (All structs and helper functions are unchanged) ---
 #define MAX_STORAGE_SERVERS 10
 typedef struct {
     char ip[MAX_IP_LEN];
     int client_port;
 } ss_info_t;
-
-// --- Access Control List (ACL) Entry ---
 typedef enum { NM_ACCESS_READ, NM_ACCESS_WRITE } nm_access_level_t;
-
 typedef struct {
     char username[MAX_USERNAME_LEN];
     nm_access_level_t level;
-    UT_hash_handle hh; // Makes this struct hashable
+    UT_hash_handle hh; 
 } access_entry_t;
-
-// --- File Metadata List ---
 typedef struct {
-    char filename[MAX_FILENAME_LEN]; // <-- This will be the hash key
+    char filename[MAX_FILENAME_LEN]; 
     char owner[MAX_USERNAME_LEN]; 
     int ss_index; 
-    
-    access_entry_t* access_list; // <-- Head of the ACL hash table
-    
-    UT_hash_handle hh; // Makes the file_info_t struct hashable
+    access_entry_t* access_list; 
+    UT_hash_handle hh; 
 } file_info_t;
-
-// --- Globals ---
 ss_info_t server_list[MAX_STORAGE_SERVERS];
 int server_count = 0;
 pthread_rwlock_t server_list_rwlock; 
-
-file_info_t* g_file_map = NULL; // Head of the file hash map
+file_info_t* g_file_map = NULL; 
 pthread_rwlock_t file_map_rwlock;
-
-
-// --- Helper function to check permissions ---
 bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level) {
     if (file == NULL) return false;
-
     access_entry_t* found_access;
     HASH_FIND_STR(file->access_list, username, found_access);
-    
-    if (found_access == NULL) {
-        return false; // User not on the list
-    }
-
-    // If READ is required, both READ and WRITE are OK
+    if (found_access == NULL) { return false; }
     if (required_level == NM_ACCESS_READ) {
         return (found_access->level == NM_ACCESS_READ || found_access->level == NM_ACCESS_WRITE);
     }
-
-    // If WRITE is required, only WRITE is OK
     if (required_level == NM_ACCESS_WRITE) {
         return (found_access->level == NM_ACCESS_WRITE);
     }
-    
     return false;
 }
-
-// --- Handler for CREATE ---
 void handle_create_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
-    
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-
     if (found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File already exists");
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
     }
-    
     pthread_rwlock_rdlock(&server_list_rwlock); 
-    
     if (server_count == 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "No Storage Servers available");
@@ -93,7 +65,6 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);  
         return;
     }
-    
     file_info_t* new_file = (file_info_t*)malloc(sizeof(file_info_t));
     if (!new_file) {
         res->status = STATUS_ERROR;
@@ -102,12 +73,10 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-    
     strcpy(new_file->filename, req.filename);
     strcpy(new_file->owner, req.username);
     new_file->ss_index = HASH_COUNT(g_file_map) % server_count;
     new_file->access_list = NULL; 
-
     access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
     if (!owner_access) {
          res->status = STATUS_ERROR;
@@ -120,83 +89,63 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     strcpy(owner_access->username, req.username);
     owner_access->level = NM_ACCESS_WRITE; 
     HASH_ADD_STR(new_file->access_list, username, owner_access);
-
     HASH_ADD_STR(g_file_map, filename, new_file);
-
     res->status = STATUS_OK;
     strcpy(res->ss_ip, server_list[new_file->ss_index].ip);
     res->ss_port = server_list[new_file->ss_index].client_port;
     printf("-> Metadata Added: File '%s' (Owner: %s) on SS#%d\n", 
            req.filename, req.username, new_file->ss_index);
-           
     pthread_rwlock_unlock(&server_list_rwlock); 
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
-// --- Handler for VIEW ---
 void handle_view_files(int conn_fd, client_request_t req) {
     nm_response_t res_header = {0};
     nm_file_entry_t file_entry;
     int files_to_send_count = 0;
-    
     pthread_rwlock_rdlock(&file_map_rwlock); 
     pthread_rwlock_rdlock(&server_list_rwlock);
-    
     file_info_t *current_file, *tmp;
-    
     HASH_ITER(hh, g_file_map, current_file, tmp) {
         if (req.view_all || check_permission(current_file, req.username, NM_ACCESS_READ)) {
             files_to_send_count++;
         }
     }
-    
     res_header.status = STATUS_OK;
     res_header.file_count = files_to_send_count;
-    
     if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
         perror("send VIEW response header failed");
         pthread_rwlock_unlock(&server_list_rwlock);
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-    
     printf("   Sending file list for user '%s' (%d files)...\n", req.username, files_to_send_count);
-    
     HASH_ITER(hh, g_file_map, current_file, tmp) {
         if (!req.view_all && !check_permission(current_file, req.username, NM_ACCESS_READ)) {
             continue;
         }
-
         int ss_idx = current_file->ss_index;
         if (ss_idx >= server_count) {
              fprintf(stderr, "   Skipping file '%s' with invalid ss_index %d\n", current_file->filename, ss_idx);
              continue;
         }
-        
         strcpy(file_entry.filename, current_file->filename);
         strcpy(file_entry.owner, current_file->owner);
         strcpy(file_entry.ss_ip, server_list[ss_idx].ip);
         file_entry.ss_port = server_list[ss_idx].client_port;
-        
         if (send(conn_fd, &file_entry, sizeof(nm_file_entry_t), 0) < 0) {
             perror("send file entry failed");
             break; 
         }
     }
-    
     pthread_rwlock_unlock(&server_list_rwlock); 
     pthread_rwlock_unlock(&file_map_rwlock); 
     printf("   File list sent.\n");
 }
-
-// --- Handler for READ ---
 void handle_read_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_rdlock(&file_map_rwlock); 
     pthread_rwlock_rdlock(&server_list_rwlock); 
-
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-
     if (!found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
@@ -204,7 +153,6 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Permission denied");
@@ -212,7 +160,6 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
     }
-
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count) {
         res->status = STATUS_ERROR;
@@ -221,25 +168,19 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
     }
-
     res->status = STATUS_OK;
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     printf("-> Read Access Granted: File '%s' (User: %s) on SS#%d\n", 
            req.filename, req.username, ss_idx);
-
     pthread_rwlock_unlock(&server_list_rwlock); 
     pthread_rwlock_unlock(&file_map_rwlock);  
 }
-
-// --- Handler for WRITE ---
 void handle_write_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_rdlock(&file_map_rwlock);
     pthread_rwlock_rdlock(&server_list_rwlock);
-
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-
     if (!found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
@@ -247,7 +188,6 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     if (!check_permission(found_file, req.username, NM_ACCESS_WRITE)) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Permission denied (Write access required)");
@@ -255,7 +195,6 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count) {
          res->status = STATUS_ERROR;
@@ -264,24 +203,18 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
          pthread_rwlock_unlock(&file_map_rwlock);
          return;
     }
-
     res->status = STATUS_OK;
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     printf("-> Write Access Granted: File '%s' (User: %s) on SS#%d\n", 
            req.filename, req.username, ss_idx);
-
     pthread_rwlock_unlock(&server_list_rwlock); 
     pthread_rwlock_unlock(&file_map_rwlock);  
 }
-
-// --- Handler for ADDACCESS ---
 void handle_add_access(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
-    
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-
     if (!found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
@@ -291,9 +224,7 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
     } else {
         access_entry_t* target_access;
         HASH_FIND_STR(found_file->access_list, req.target_username, target_access);
-
         nm_access_level_t new_level = (req.access_level == ACCESS_WRITE) ? NM_ACCESS_WRITE : NM_ACCESS_READ;
-
         if (target_access) {
             target_access->level = new_level;
             res->status = STATUS_OK;
@@ -316,14 +247,10 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
     }
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
-// --- Handler for REMACCESS ---
 void handle_rem_access(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
-    
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-
     if (!found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
@@ -336,7 +263,6 @@ void handle_rem_access(nm_response_t* res, client_request_t req) {
     } else {
         access_entry_t* target_access;
         HASH_FIND_STR(found_file->access_list, req.target_username, target_access);
-        
         if (target_access) {
             HASH_DEL(found_file->access_list, target_access);
             free(target_access);
@@ -349,15 +275,11 @@ void handle_rem_access(nm_response_t* res, client_request_t req) {
     }
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
-// --- Handler for DELETE ---
 void handle_delete_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock);   
     pthread_rwlock_rdlock(&server_list_rwlock); 
-
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
-    
     if (!found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "File not found");
@@ -365,7 +287,6 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     if (strcmp(found_file->owner, req.username) != 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Permission denied (Only the owner can delete)");
@@ -373,7 +294,6 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count) {
         res->status = STATUS_ERROR;
@@ -382,26 +302,22 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
-
     res->status = STATUS_OK;
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
-
     access_entry_t *current_access, *tmp_access;
     HASH_ITER(hh, found_file->access_list, current_access, tmp_access) {
         HASH_DEL(found_file->access_list, current_access);
         free(current_access);
     }
-
     HASH_DEL(g_file_map, found_file);
     free(found_file);
-
     printf("-> Metadata Deleted: File '%s' (User: %s). Notifying SS.\n", 
            req.filename, req.username);
-
     pthread_rwlock_unlock(&server_list_rwlock);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
+
 
 // --- Main Connection Handler ---
 void* handle_connection(void* p_conn_fd) {
@@ -424,10 +340,8 @@ void* handle_connection(void* p_conn_fd) {
     if (msg_type == MSG_SS_REGISTER) {
         ss_registration_t reg_data;
         n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
-        
          if (n == sizeof(ss_registration_t)) {
             pthread_rwlock_wrlock(&server_list_rwlock); 
-            
             if (server_count < MAX_STORAGE_SERVERS) {
                 strcpy(server_list[server_count].ip, reg_data.ss_ip);
                 server_list[server_count].client_port = reg_data.client_port;
@@ -459,7 +373,6 @@ void* handle_connection(void* p_conn_fd) {
             return NULL;
         }
 
-        // --- THIS IS THE CORRECTED ROUTING LOGIC ---
         if (req.command == CMD_CREATE_FILE) {
             printf("   Handling CMD_CREATE_FILE for '%s'\n", req.filename);
             handle_create_file(&res, req); 
@@ -472,6 +385,10 @@ void* handle_connection(void* p_conn_fd) {
         } else if (req.command == CMD_READ_FILE) {
             printf("   Handling CMD_READ_FILE for '%s'\n", req.filename);
             handle_read_file(&res, req);
+        
+        } else if (req.command == CMD_STREAM_FILE) { // NEW
+            printf("   Handling CMD_STREAM_FILE for '%s'\n", req.filename);
+            handle_read_file(&res, req); // Re-use read logic for permission check
 
         } else if (req.command == CMD_WRITE_FILE) {
             printf("   Handling CMD_WRITE_FILE for '%s'\n", req.filename);
@@ -493,7 +410,6 @@ void* handle_connection(void* p_conn_fd) {
             res.status = STATUS_ERROR;
             strcpy(res.error_msg, "Unknown command");
         }
-        // --- END OF ROUTING LOGIC ---
         
         if (!response_sent_by_handler) {
             if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
@@ -570,7 +486,6 @@ int main() {
     pthread_rwlock_destroy(&server_list_rwlock);
     pthread_rwlock_destroy(&file_map_rwlock);
     
-    // --- Free all uthash data ---
     file_info_t *current_file, *tmp_file;
     HASH_ITER(hh, g_file_map, current_file, tmp_file) {
         access_entry_t *current_access, *tmp_access;
