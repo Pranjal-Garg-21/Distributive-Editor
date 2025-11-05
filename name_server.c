@@ -186,6 +186,58 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_unlock(&file_list_rwlock);  // CHANGED
 }
 
+// In nm.c, (you can copy-paste handle_read_file and modify it)
+
+void handle_write_file(nm_response_t* res, client_request_t req) {
+    // --- READ LOCKS on both lists ---
+    pthread_rwlock_rdlock(&file_list_rwlock);
+    pthread_rwlock_rdlock(&server_list_rwlock);
+
+    int file_idx = -1;
+    for (int i = 0; i < file_count; i++) {
+        if (strcmp(file_list[i].filename, req.filename) == 0) {
+            file_idx = i;
+            break;
+        }
+    }
+
+    if (file_idx == -1) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "File not found");
+        pthread_rwlock_unlock(&server_list_rwlock); 
+        pthread_rwlock_unlock(&file_list_rwlock);
+        return;
+    }
+
+    // 2. Check permissions (TODO: Update this when you add ADDACCESS)
+    if (strcmp(file_list[file_idx].owner, req.username) != 0) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Permission denied (must be owner to write)");
+        pthread_rwlock_unlock(&server_list_rwlock); 
+        pthread_rwlock_unlock(&file_list_rwlock);
+        return;
+    }
+
+    // ... (check if ss_idx is valid) ...
+    int ss_idx = file_list[file_idx].ss_index;
+    if (ss_idx >= server_count) {
+         res->status = STATUS_ERROR;
+         strcpy(res->error_msg, "Storage Server for this file is currently offline");
+         pthread_rwlock_unlock(&server_list_rwlock); 
+         pthread_rwlock_unlock(&file_list_rwlock);
+         return;
+    }
+
+    res->status = STATUS_OK;
+    strcpy(res->ss_ip, server_list[ss_idx].ip);
+    res->ss_port = server_list[ss_idx].client_port;
+    printf("-> Write Access Granted: File '%s' (User: %s) on SS#%d\n", 
+           req.filename, req.username, ss_idx);
+
+    pthread_rwlock_unlock(&server_list_rwlock); 
+    pthread_rwlock_unlock(&file_list_rwlock);  
+}
+
 
 void* handle_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
@@ -193,6 +245,15 @@ void* handle_connection(void* p_conn_fd) {
 
     message_type_t msg_type;
     ssize_t n = recv(conn_fd, &msg_type, sizeof(message_type_t), 0);
+    if (n <= 0) {
+        if (n < 0) {
+            perror("[Thread] recv message type failed");
+        } else {
+            printf("[Thread] Client disconnected before sending message type.\n");
+        }
+        close(conn_fd);
+        return NULL;
+    }
     // ... (error handling) ...
 
     if (msg_type == MSG_SS_REGISTER) {
@@ -250,7 +311,18 @@ void* handle_connection(void* p_conn_fd) {
             handle_read_file(&res, req);
 
         } 
-        
+        else if (req.command == CMD_WRITE_FILE) { // <-- ADD THIS
+            printf("   Handling CMD_WRITE_FILE for '%s' (User: %s)\n", req.filename, req.username);
+            handle_write_file(&res, req);
+        }
+        // --- !! ADDED THIS BLOCK !! ---
+        // Send the response for non-VIEW commands (CREATE, READ, WRITE)
+        if (!response_sent_by_handler) {
+            if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
+                perror("send response to client failed");
+            }
+        }
+        // --- END ADDED BLOCK ---
         // ... (rest of the if-else block) ...
     }
     // ...
@@ -269,6 +341,10 @@ int main() {
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     // ... (error handling) ...
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = htonl(INADDR_ANY); // Listen on all interfaces
+    serv_addr.sin_port = htons(NM_PORT);
     // ... (bind setup) ...
     if (bind(listen_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
         // ... (error handling) ...
@@ -296,8 +372,13 @@ int main() {
         pthread_t tid;
         int* p_conn_fd = malloc(sizeof(int));
         *p_conn_fd = conn_fd;
-        // ... (pthread_create error handling) ...
+        if (pthread_create(&tid, NULL, handle_connection, p_conn_fd) != 0) {
+        perror("[Main] pthread_create failed"); // This will now print an error
+        free(p_conn_fd); 
+        close(conn_fd);  
+    } else {
         pthread_detach(tid);
+    }
     } 
     
     close(listen_fd);

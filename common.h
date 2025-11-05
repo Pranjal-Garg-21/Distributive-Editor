@@ -16,6 +16,7 @@
 #define MAX_FILES 1000
 #define MAX_USERNAME_LEN 50 
 #define FILE_BUFFER_SIZE 4096 
+#define MAX_WORDS_PER_SENTENCE 2048
 
 // --- Message Types (Client <-> NM Handshake) ---
 typedef enum {
@@ -30,13 +31,14 @@ typedef enum {
 } response_status_t;
 
 
-// --- MOVED UP: This must be defined before client_request_t ---
+// --- Command Enums ---
 typedef enum {
     CMD_CREATE_FILE,
     CMD_VIEW_FILES,
     CMD_DELETE_FILE,
     CMD_READ_FILE,
-    CMD_GET_STATS   
+    CMD_GET_STATS,
+    CMD_WRITE_FILE
 } client_command_t;
 
 
@@ -51,15 +53,13 @@ typedef struct {
 
 // Client sends this to NM
 typedef struct {
-    client_command_t command; // Now this is a known type
+    client_command_t command;
     char username[MAX_USERNAME_LEN]; 
     char filename[MAX_FILENAME_LEN];
 
     bool view_all; // -a
     bool view_long; // -l
 } client_request_t;
-
-// ... (rest of common.h is correct) ...
 
 // NM sends this back to Client
 typedef struct {
@@ -84,11 +84,42 @@ typedef struct {
 
 // --- Structs for Client <-> SS Communication ---
 
-// SS -> Client (for CREATE/DELETE)
+// SS -> Client (for CREATE/DELETE/Ready-to-Write)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN]; 
 } ss_response_t;
+
+// --- Structs for the WRITE Protocol ---
+
+// Client -> SS (for each write operation within a session)
+typedef struct {
+    int sentence_index;
+    int word_index;
+    char content[FILE_BUFFER_SIZE];
+    bool is_etirw; // true if this is the final ETIRW command
+} client_write_chunk_t;
+
+// *** NEW/UPDATED STRUCT ***
+// SS -> Client (sent after *each* non-ETIRW write chunk)
+typedef struct {
+    response_status_t status;
+    char error_msg[MAX_ERROR_MSG_LEN];
+    int new_active_sentence_index;  // Lets client know which sentence to edit next
+    int new_total_sentence_count; // Lets client know total
+} ss_write_chunk_response_t;
+
+// SS -> Client (sent once after ETIRW is received and file is saved)
+typedef struct {
+    response_status_t status;
+    char error_msg[MAX_ERROR_MSG_LEN]; 
+    int updated_sentence_count; 
+} ss_write_response_t;
+
+// --- End WRITE Protocol Structs ---
+
+
+// --- Structs for READ/STATS ---
 
 // Struct for file statistics
 typedef struct {
@@ -105,7 +136,7 @@ typedef struct {
     ss_file_stats_t stats; 
 } ss_stats_response_t;
 
-// NEW: SS -> Client (for sending file data)
+// SS -> Client (for sending file data)
 typedef struct {
     int data_size; 
     char data[FILE_BUFFER_SIZE];

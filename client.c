@@ -7,6 +7,7 @@
 #include <stdbool.h> 
 #include <time.h>     
 #include "common.h"
+#include <ctype.h>
 
 #define NM_IP "127.0.0.1"
 // NM_PORT is from common.h
@@ -20,6 +21,7 @@ void print_help() {
     printf("  CREATE <filename>\n");
     printf("  VIEW [-a] [-l] [-al]\n");
     printf("  READ <filename>\n");
+    printf("  WRITE <filename> <sentence_number>\n");
     printf("  DELETE <filename>\n");
     printf("  help     (Show this message)\n");
     printf("  exit     (Quit the client)\n\n");
@@ -117,12 +119,13 @@ void do_create(const char* username, const char* filename) {
  * @brief Handles the entire VIEW command flow.
  */
 void do_view(const char* username, bool view_all, bool view_long) {
+    
     client_request_t req = {0};
     req.command = CMD_VIEW_FILES;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     req.view_all = view_all;
     req.view_long = view_long;
-
+    
     // --- STEP 1: Connect to Name Server ---
     int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
     if (nm_sock_fd < 0) {
@@ -283,6 +286,142 @@ void do_read(const char* username, const char* filename) {
     close(ss_sock_fd);
 }
 
+// In client.c, after do_read()
+
+/**
+ * @brief Handles the entire (stateful) WRITE command flow.
+ */
+void do_write(const char* username, const char* filename, int initial_sentence_num) {
+    client_request_t req = {0};
+    req.command = CMD_WRITE_FILE;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
+    // --- STEP 1: Connect to NM (to get permission) ---
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Name Server.\n");
+        return;
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+         perror("recv response header from NM failed");
+         close(nm_sock_fd);
+         return;
+    }
+    close(nm_sock_fd); // Done with NM
+
+    if (nm_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg);
+        return;
+    }
+
+    // --- STEP 2: Connect to Storage Server ---
+    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port);
+        return;
+    }
+
+    // Send the initial request (this tells the SS to acquire the write lock)
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    // Wait for the SS to send "OK, I'm ready"
+    ss_response_t ready_res;
+    if (recv(ss_sock_fd, &ready_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("recv ready response from SS failed");
+        close(ss_sock_fd);
+        return;
+    }
+
+    if (ready_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Storage Server]: %s\n", ready_res.error_msg);
+        close(ss_sock_fd);
+        return;
+    }
+
+    printf("File '%s' is locked. Enter write commands (e.g., '<word_index> <content>') or 'ETIRW' to save and exit.\n", filename);
+
+    // --- STEP 3: Enter Stateful Write Loop ---
+    char write_input[FILE_BUFFER_SIZE + 100]; // Extra space
+    int current_sentence = initial_sentence_num;
+
+    while(1) {
+        printf("(writing %s:%d) > ", filename, current_sentence);
+        if (fgets(write_input, sizeof(write_input), stdin) == NULL) {
+            break; // Ctrl+D
+        }
+        write_input[strcspn(write_input, "\n")] = 0; // Remove newline
+
+        client_write_chunk_t chunk = {0};
+        chunk.sentence_index = current_sentence;
+
+        if (strcmp(write_input, "ETIRW") == 0) {
+            chunk.is_etirw = true;
+            send(ss_sock_fd, &chunk, sizeof(client_write_chunk_t), 0);
+            break; // Exit loop
+        }
+
+       // --- !! REPLACE THIS BLOCK !! ---
+    char* word_idx_str;
+    char* content_str;
+
+    // Find the first space
+    char* first_space = strchr(write_input, ' ');
+
+    if (first_space == NULL) {
+        printf("Invalid format. Use: <word_index> <content> or ETIRW\n");
+        continue;
+    }
+    
+    // Temporarily end the string at the space to get the word_index
+    *first_space = '\0';
+    word_idx_str = write_input;
+    content_str = first_space + 1; // The content is everything after
+    
+    // Skip any extra spaces (e.g., "3   content")
+    while (isspace((unsigned char)*content_str)) {
+        content_str++;
+    }
+
+    if (word_idx_str[0] == '\0' || content_str[0] == '\0') {
+        printf("Invalid format. Use: <word_index> <content> or ETIRW\n");
+        // *first_space = ' '; // Restore string (optional)
+        continue;
+    }
+        chunk.word_index = atoi(word_idx_str);
+        strncpy(chunk.content, content_str, FILE_BUFFER_SIZE - 1);
+        chunk.is_etirw = false;
+
+        send(ss_sock_fd, &chunk, sizeof(client_write_chunk_t), 0);
+
+        // TODO: The spec implies the server should send a response
+        // after each chunk to update the sentence index.
+        // For now, we'll just stay on the same sentence.
+    }
+
+    // --- STEP 4: Get Final Response ---
+    ss_write_response_t final_res;
+    if (recv(ss_sock_fd, &final_res, sizeof(ss_write_response_t), 0) != sizeof(ss_write_response_t)) {
+         perror("recv final response from SS failed");
+         close(ss_sock_fd);
+         return;
+    }
+
+    if (final_res.status == STATUS_OK) {
+        printf("Write successful! (File now has %d sentences)\n", final_res.updated_sentence_count);
+    } else {
+        fprintf(stderr, "[Error from Storage Server]: %s\n", final_res.error_msg);
+    }
+
+    close(ss_sock_fd);
+}
+
 
 // =================================================================
 // --- Main Interactive Loop ---
@@ -308,9 +447,11 @@ int main(int argc, char *argv[]) {
         if (fgets(input_line, sizeof(input_line), stdin) == NULL) {
             break; // EOF (e.g., Ctrl+D)
         }
-        
+        input_line[strcspn(input_line, "\n")] = 0;
+    input_line[strcspn(input_line, "\r")] = 0;
         // --- Parse the command ---
         char* command = strtok(input_line, " \n");
+        
         if (command == NULL) {
             continue; // Empty line
         }
@@ -330,6 +471,7 @@ int main(int argc, char *argv[]) {
             }
         
         } else if (strcmp(command, "VIEW") == 0) {
+            
             bool view_all = false;
             bool view_long = false;
             char* flag = strtok(NULL, " \n");
@@ -343,8 +485,8 @@ int main(int argc, char *argv[]) {
                 }
                 flag = strtok(NULL, " \n");
             }
+
             do_view(username, view_all, view_long);
-        
         } else if (strcmp(command, "READ") == 0) {
             char* filename = strtok(NULL, " \n");
             if (filename == NULL) {
@@ -353,7 +495,17 @@ int main(int argc, char *argv[]) {
                 do_read(username, filename);
             }
         
-        } else if (strcmp(command, "DELETE") == 0) {
+        } else if (strcmp(command, "WRITE") == 0) { // <-- ADD THIS
+        char* filename = strtok(NULL, " \n");
+        char* sentence_str = strtok(NULL, " \n");
+        if (filename == NULL || sentence_str == NULL) {
+            fprintf(stderr, "Usage: WRITE <filename> <sentence_number>\n");
+        } else {
+            do_write(username, filename, atoi(sentence_str));
+        }
+
+    }
+        else if (strcmp(command, "DELETE") == 0) {
             fprintf(stderr, "DELETE command is not implemented yet.\n");
             // TODO: Add do_delete(username, filename);
         
