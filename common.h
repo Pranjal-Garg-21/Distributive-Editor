@@ -38,8 +38,16 @@ typedef enum {
     CMD_DELETE_FILE,
     CMD_READ_FILE,
     CMD_GET_STATS,
-    CMD_WRITE_FILE
+    CMD_WRITE_FILE,
+    CMD_ADD_ACCESS,   // NEW
+    CMD_REM_ACCESS    // NEW
 } client_command_t;
+
+// --- NEW: Access Level Enum ---
+typedef enum {
+    ACCESS_READ,
+    ACCESS_WRITE
+} access_level_t;
 
 
 // --- Structs for SS <-> NM Registration ---
@@ -54,11 +62,16 @@ typedef struct {
 // Client sends this to NM
 typedef struct {
     client_command_t command;
-    char username[MAX_USERNAME_LEN]; 
+    char username[MAX_USERNAME_LEN];    // The user running the command
     char filename[MAX_FILENAME_LEN];
 
+    // --- Flags for VIEW ---
     bool view_all; // -a
     bool view_long; // -l
+
+    // --- NEW: Fields for Access Control ---
+    char target_username[MAX_USERNAME_LEN]; // The user to grant/revoke access
+    access_level_t access_level;            // R or W
 } client_request_t;
 
 // NM sends this back to Client
@@ -72,17 +85,15 @@ typedef struct {
     int file_count;
 } nm_response_t;
 
+// ... (Rest of the file is unchanged) ...
+
 // NM sends this for each file in a VIEW list
 typedef struct {
     char filename[MAX_FILENAME_LEN];
     char owner[MAX_USERNAME_LEN]; 
-    
     char ss_ip[MAX_IP_LEN];
     int ss_port;
 } nm_file_entry_t;
-
-
-// --- Structs for Client <-> SS Communication ---
 
 // SS -> Client (for CREATE/DELETE/Ready-to-Write)
 typedef struct {
@@ -90,9 +101,7 @@ typedef struct {
     char error_msg[MAX_ERROR_MSG_LEN]; 
 } ss_response_t;
 
-// --- Structs for the WRITE Protocol ---
-
-// Client -> SS (for each write operation within a session)
+// Client -> SS (for each write operation)
 typedef struct {
     int sentence_index;
     int word_index;
@@ -100,26 +109,20 @@ typedef struct {
     bool is_etirw; // true if this is the final ETIRW command
 } client_write_chunk_t;
 
-// *** NEW/UPDATED STRUCT ***
-// SS -> Client (sent after *each* non-ETIRW write chunk)
+// SS -> Client (after *each* non-ETIRW write chunk)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN];
-    int new_active_sentence_index;  // Lets client know which sentence to edit next
-    int new_total_sentence_count; // Lets client know total
+    int new_active_sentence_index;  
+    int new_total_sentence_count; 
 } ss_write_chunk_response_t;
 
-// SS -> Client (sent once after ETIRW is received and file is saved)
+// SS -> Client (sent once after ETIRW is received)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN]; 
     int updated_sentence_count; 
 } ss_write_response_t;
-
-// --- End WRITE Protocol Structs ---
-
-
-// --- Structs for READ/STATS ---
 
 // Struct for file statistics
 typedef struct {

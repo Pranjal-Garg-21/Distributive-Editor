@@ -17,7 +17,6 @@
 #define NM_IP "127.0.0.1"
 
 
-
 // --- Helper functions for WRITE ---
 
 // A struct to hold the file in memory, split by sentences
@@ -26,7 +25,11 @@ typedef struct {
     int count;
 } file_in_memory_t;
 
-// Frees the in-memory file representation
+// --- REMOVED THE DUPLICATE/STUB FUNCTIONS THAT WERE HERE ---
+
+/**
+ * @brief Frees the in-memory file representation
+ */
 void free_file_in_memory(file_in_memory_t* file_mem) {
     if (file_mem == NULL) return;
     for (int i = 0; i < file_mem->count; i++) {
@@ -81,7 +84,8 @@ file_in_memory_t parse_string_into_sentences(const char* content_str) {
                     new_mem.count++;
                     new_mem.sentences = (char**)realloc(new_mem.sentences, new_mem.count * sizeof(char*));
                     new_mem.sentences[new_mem.count - 1] = last_sentence;
-                    new_mem.count--;
+                    // Note: The "new_mem.count--" from your file looks like a bug. 
+                    // It's removed here, but if it was intentional, re-add it.
                 }
             }
             break; // End of string, exit loop
@@ -119,7 +123,9 @@ file_in_memory_t parse_string_into_sentences(const char* content_str) {
 }
 
 
-// (MODIFIED to use new helper)
+/**
+ * @brief (MODIFIED to use new helper)
+ */
 file_in_memory_t load_file_into_memory(const char* filename) {
     file_in_memory_t file_mem = { .sentences = NULL, .count = 0 };
     FILE* fp = fopen(filename, "r");
@@ -155,7 +161,9 @@ file_in_memory_t load_file_into_memory(const char* filename) {
     return file_mem;
 }
 
-// (UNCHANGED)
+/**
+ * @brief (UNCHANGED)
+ */
 bool save_memory_to_file(const char* filename, file_in_memory_t* file_mem) {
     FILE* fp = fopen(filename, "w"); // "w" = overwrite
     if (fp == NULL) {
@@ -322,7 +330,9 @@ bool edit_sentence(file_in_memory_t* file_mem, int sentence_idx, int word_idx, c
 
 // --- (Rest of file is unchanged) ---
 
-// Creates a backup of a file
+/**
+ * @brief Creates a backup of a file
+ */
 void create_backup_for_undo(const char* filename) {
     char backup_filename[MAX_FILENAME_LEN + 5];
     sprintf(backup_filename, "%s.bak", filename);
@@ -352,23 +362,15 @@ void create_backup_for_undo(const char* filename) {
     printf("   [SS-Thread]: Backup created: %s\n", backup_filename);
 }
 
-// --- Per-File Lock Management (Hash Map) ---
-
-typedef struct {
-    char filename[MAX_FILENAME_LEN]; 
-    pthread_rwlock_t lock;           
-    UT_hash_handle hh;               
-} file_lock_t;
-
-file_lock_t* g_file_lock_map = NULL;
-pthread_mutex_t g_lock_map_mutex;
-
-// Helper function to get word/line counts
+/**
+ * @brief Helper function to get word/line counts
+ */
 void get_file_counts(const char* filename, long* word_count, long* line_count) {
     FILE* fp = fopen(filename, "r");
     *word_count = 0;
     *line_count = 0;
     if (fp == NULL) {
+        // This is not a fatal error for stats, just print to SS log
         perror("   [SS-Thread]: get_file_counts fopen failed");
         return; 
     }
@@ -389,7 +391,20 @@ void get_file_counts(const char* filename, long* word_count, long* line_count) {
     fclose(fp);
 }
 
-// Hash Map Lock Manager Function
+// --- Per-File Lock Management (Hash Map) ---
+
+typedef struct {
+    char filename[MAX_FILENAME_LEN]; 
+    pthread_rwlock_t lock;           
+    UT_hash_handle hh;               
+} file_lock_t;
+
+file_lock_t* g_file_lock_map = NULL;
+pthread_mutex_t g_lock_map_mutex;
+
+/**
+ * @brief Hash Map Lock Manager Function
+ */
 pthread_rwlock_t* get_lock_for_file(const char* filename) {
     file_lock_t* found_lock;
 
@@ -424,7 +439,9 @@ pthread_rwlock_t* get_lock_for_file(const char* filename) {
     return &found_lock->lock;
 }
 
-// Handles a single client connection
+/**
+ * @brief Handles a single client connection
+ */
 void* handle_client_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
     free(p_conn_fd);
@@ -436,7 +453,8 @@ void* handle_client_connection(void* p_conn_fd) {
 
     ssize_t n = recv(conn_fd, &req, sizeof(client_request_t), 0);
     if (n != sizeof(client_request_t)) {
-        fprintf(stderr, "   [SS-Thread]: Error receiving client request.\n");
+        fprintf(stderr, "   [SS-Thread]: Error receiving client request. Expected %zu, got %zd\n",
+                sizeof(client_request_t), n);
         close(conn_fd);
         return NULL;
     }
@@ -446,9 +464,9 @@ void* handle_client_connection(void* p_conn_fd) {
     if (file_lock == NULL) {
         ss_response_t res = {0};
         res.status = STATUS_ERROR;
-        strcpy(res.error_msg, "Storage Server internal error. Try again later.");
+        strcpy(res.error_msg, "Storage Server internal error (Lock Manager). Try again.");
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
-            perror("   [SS-Thread]: send capacity error response failed");
+            perror("   [SS-Thread]: send lock error response failed");
         }
         response_sent = true;
     } else {
@@ -457,8 +475,7 @@ void* handle_client_connection(void* p_conn_fd) {
         if (req.command == CMD_CREATE_FILE) {
             printf("   [SS-Thread]: Handling CMD_CREATE_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_wrlock(file_lock);
-
+            pthread_rwlock_wrlock(file_lock); // Lock file
             ss_response_t res = {0}; 
             FILE* fp = fopen(req.filename, "w"); 
             if (fp == NULL) {
@@ -470,8 +487,7 @@ void* handle_client_connection(void* p_conn_fd) {
                 res.status = STATUS_OK;
                 printf("   [SS-Thread]: Successfully created file '%s'\n", req.filename);
             }
-            
-            pthread_rwlock_unlock(file_lock);
+            pthread_rwlock_unlock(file_lock); // Unlock file
 
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send create response failed");
@@ -481,8 +497,7 @@ void* handle_client_connection(void* p_conn_fd) {
         } else if (req.command == CMD_GET_STATS) {
             printf("   [SS-Thread]: Handling CMD_GET_STATS for '%s'\n", req.filename);
             
-            pthread_rwlock_rdlock(file_lock);
-
+            pthread_rwlock_rdlock(file_lock); // Lock file
             ss_stats_response_t res = {0}; 
             struct stat file_stat;
             if (stat(req.filename, &file_stat) < 0) {
@@ -494,11 +509,8 @@ void* handle_client_connection(void* p_conn_fd) {
                 res.stats.char_count = file_stat.st_size;
                 res.stats.last_modified = file_stat.st_mtime;
                 get_file_counts(req.filename, &res.stats.word_count, &res.stats.line_count);
-                printf("   [SS-Thread]: Stats for '%s': %ld chars, %ld words, %ld lines\n",
-                       req.filename, res.stats.char_count, res.stats.word_count, res.stats.line_count);
             }
-            
-            pthread_rwlock_unlock(file_lock);
+            pthread_rwlock_unlock(file_lock); // Unlock file
 
             if (send(conn_fd, &res, sizeof(ss_stats_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send stats response failed");
@@ -508,8 +520,7 @@ void* handle_client_connection(void* p_conn_fd) {
         } else if (req.command == CMD_READ_FILE) {
             printf("   [SS-Thread]: Handling CMD_READ_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_rdlock(file_lock);
-
+            pthread_rwlock_rdlock(file_lock); // Lock file
             ss_response_t header_res = {0};
             FILE* fp = fopen(req.filename, "r");
 
@@ -529,7 +540,6 @@ void* handle_client_connection(void* p_conn_fd) {
                     close(conn_fd);
                     return NULL;
                 }
-
                 ss_file_data_chunk_t chunk;
                 size_t bytes_read;
                 while ((bytes_read = fread(chunk.data, 1, FILE_BUFFER_SIZE, fp)) > 0) {
@@ -539,29 +549,25 @@ void* handle_client_connection(void* p_conn_fd) {
                         break; 
                     }
                 }
-
                 chunk.data_size = 0;
                 if (send(conn_fd, &chunk, sizeof(ss_file_data_chunk_t), 0) < 0) {
                     perror("   [SS-Thread]: send terminator chunk failed");
                 }
-                
                 fclose(fp);
                 printf("   [SS-Thread]: File '%s' sent successfully.\n", req.filename);
             }
-            
-            pthread_rwlock_unlock(file_lock);
+            pthread_rwlock_unlock(file_lock); // Unlock file
             response_sent = true;
-        } 
-        else if (req.command == CMD_WRITE_FILE) {
+        
+        } else if (req.command == CMD_WRITE_FILE) {
             printf("   [SS-Thread]: Handling CMD_WRITE_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_wrlock(file_lock);
+            pthread_rwlock_wrlock(file_lock); // Lock file
             
             ss_response_t ready_res = { .status = STATUS_OK };
             ss_write_response_t final_res = { .status = STATUS_OK };
 
             create_backup_for_undo(req.filename);
-
             file_in_memory_t file_mem = load_file_into_memory(req.filename);
 
             if (send(conn_fd, &ready_res, sizeof(ss_response_t), 0) < 0) {
@@ -571,32 +577,48 @@ void* handle_client_connection(void* p_conn_fd) {
                 client_write_chunk_t chunk;
                 while (recv(conn_fd, &chunk, sizeof(client_write_chunk_t), 0) == sizeof(client_write_chunk_t)) {
                     if (chunk.is_etirw) {
-                        break; // ETIRW received
+                        break; 
                     }
-                    
                     if (!edit_sentence(&file_mem, chunk.sentence_index, chunk.word_index, chunk.content)) {
                         final_res.status = STATUS_ERROR;
                         strcpy(final_res.error_msg, "Failed to edit sentence (e.g., index out of bounds)");
                         break;
                     }
                 }
-
                 if (final_res.status == STATUS_OK) {
                     if (!save_memory_to_file(req.filename, &file_mem)) {
                         final_res.status = STATUS_ERROR;
                         strcpy(final_res.error_msg, "Failed to save file to disk");
                     }
                 }
-                
                 final_res.updated_sentence_count = file_mem.count;
-                
                 if (send(conn_fd, &final_res, sizeof(ss_write_response_t), 0) < 0) {
                     perror("   [SS-Thread]: send final write response failed");
                 }
             }
-            
             free_file_in_memory(&file_mem);
-            pthread_rwlock_unlock(file_lock);
+            pthread_rwlock_unlock(file_lock); // Unlock file
+            response_sent = true;
+
+        } else if (req.command == CMD_DELETE_FILE) {
+            printf("   [SS-Thread]: Handling CMD_DELETE_FILE for '%s'\n", req.filename);
+            
+            pthread_rwlock_wrlock(file_lock); // Lock file
+            ss_response_t res = {0};
+
+            if (remove(req.filename) == 0) {
+                res.status = STATUS_OK;
+                printf("   [SS-Thread]: Successfully deleted file '%s'\n", req.filename);
+            } else {
+                perror("   [SS-Thread]: remove failed");
+                res.status = STATUS_ERROR;
+                strcpy(res.error_msg, "File not found or delete failed on Storage Server");
+            }
+            pthread_rwlock_unlock(file_lock); // Unlock file
+
+            if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
+                perror("   [SS-Thread]: send delete response failed");
+            }
             response_sent = true;
         }
     } 
@@ -625,20 +647,20 @@ int main() {
     // --- 1. Register with Name Server ---
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
-        perror("socket creation failed");
+        perror("[Main] socket creation failed");
         exit(EXIT_FAILURE);
     }
     memset(&nm_addr, 0, sizeof(nm_addr));
     nm_addr.sin_family = AF_INET;
     nm_addr.sin_port = htons(NM_PORT);
     if (inet_pton(AF_INET, NM_IP, &nm_addr.sin_addr) <= 0) {
-        perror("invalid Name Server IP address");
+        perror("[Main] invalid Name Server IP address");
         exit(EXIT_FAILURE);
     }
 
     printf("Attempting to connect to Name Server at %s:%d...\n", NM_IP, NM_PORT);
     if (connect(sock_fd, (struct sockaddr*)&nm_addr, sizeof(nm_addr)) < 0) {
-        perror("connection to Name Server failed");
+        perror("[Main] connection to Name Server failed");
         exit(EXIT_FAILURE);
     }
 
@@ -646,7 +668,7 @@ int main() {
     
     message_type_t msg_type = MSG_SS_REGISTER;
     if (send(sock_fd, &msg_type, sizeof(message_type_t), 0) < 0) {
-        perror("send message type failed");
+        perror("[Main] send message type failed");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
@@ -654,7 +676,7 @@ int main() {
     strcpy(reg_data.ss_ip, MY_IP);
     reg_data.client_port = MY_CLIENT_PORT;
     if (send(sock_fd, &reg_data, sizeof(reg_data), 0) < 0) {
-        perror("send registration data failed");
+        perror("[Main] send registration data failed");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
@@ -663,7 +685,7 @@ int main() {
 
     // --- Initialize the global lock map mutex ---
     if (pthread_mutex_init(&g_lock_map_mutex, NULL) != 0) {
-        perror("g_lock_map_mutex init failed");
+        perror("[Main] g_lock_map_mutex init failed");
         exit(EXIT_FAILURE);
     }
 
@@ -673,7 +695,7 @@ int main() {
 
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) {
-        perror("SS server socket creation failed");
+        perror("[Main] SS server socket creation failed");
         exit(EXIT_FAILURE);
     }
     
@@ -685,11 +707,11 @@ int main() {
     ss_serv_addr.sin_port = htons(MY_CLIENT_PORT);
 
     if (bind(listen_fd, (struct sockaddr*)&ss_serv_addr, sizeof(ss_serv_addr)) < 0) {
-        perror("SS server bind failed");
+        perror("[Main] SS server bind failed");
         exit(EXIT_FAILURE);
     }
-    if (listen(listen_fd, 5) < 0) {
-        perror("SS server listen failed");
+    if (listen(listen_fd, 10) < 0) {
+        perror("[Main] SS server listen failed");
         exit(EXIT_FAILURE);
     }
     printf("\n[SS-Main]: Storage Server now listening for clients on port %d...\n", MY_CLIENT_PORT);
@@ -700,7 +722,7 @@ int main() {
         socklen_t client_len = sizeof(client_addr);
         int conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
         if (conn_fd < 0) {
-            perror("SS server accept failed");
+            perror("[Main] SS server accept failed");
             continue; 
         }
 
@@ -713,8 +735,9 @@ int main() {
         *p_conn_fd = conn_fd;
         
         if (pthread_create(&tid, NULL, handle_client_connection, p_conn_fd) != 0) {
-            perror("pthread_create failed");
+            perror("[Main] pthread_create failed");
             free(p_conn_fd);
+            close(conn_fd);
         }
         pthread_detach(tid); 
     }
@@ -733,4 +756,3 @@ int main() {
     
     return 0;
 }
-
