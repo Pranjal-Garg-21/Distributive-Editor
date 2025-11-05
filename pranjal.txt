@@ -1,2 +1,0 @@
-hello i am pranjalYO
-15] Stream Content: The client establishes direct connection with the Storage Server and fetches & displays the content word-by-word with a delay of 0.1 seconds between each word. This simulates a streaming effect, allowing users to experience the content in a dynamic manner.
