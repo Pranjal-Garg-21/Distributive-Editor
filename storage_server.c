@@ -25,7 +25,15 @@ typedef struct {
     int count;
 } file_in_memory_t;
 
-// --- REMOVED THE DUPLICATE/STUB FUNCTIONS THAT WERE HERE ---
+// --- NEW HELPER ---
+// A simple dynamic array to buffer write chunks
+typedef struct {
+    client_write_chunk_t* chunks;
+    int count;
+    int capacity;
+} edit_buffer_t;
+
+// --- (All file parsing, load, save, edit functions are unchanged) ---
 
 /**
  * @brief Frees the in-memory file representation
@@ -41,8 +49,7 @@ void free_file_in_memory(file_in_memory_t* file_mem) {
 }
 
 /**
- * @brief (REPLACED - FINAL FIX) A custom, robust sentence parser.
- * This replaces strtok and correctly handles all edge cases.
+ * @brief A custom, robust sentence parser.
  */
 file_in_memory_t parse_string_into_sentences(const char* content_str) {
     file_in_memory_t new_mem = { .sentences = NULL, .count = 0 };
@@ -84,8 +91,6 @@ file_in_memory_t parse_string_into_sentences(const char* content_str) {
                     new_mem.count++;
                     new_mem.sentences = (char**)realloc(new_mem.sentences, new_mem.count * sizeof(char*));
                     new_mem.sentences[new_mem.count - 1] = last_sentence;
-                    // Note: The "new_mem.count--" from your file looks like a bug. 
-                    // It's removed here, but if it was intentional, re-add it.
                 }
             }
             break; // End of string, exit loop
@@ -178,7 +183,7 @@ bool save_memory_to_file(const char* filename, file_in_memory_t* file_mem) {
 }
 
 /**
- * @brief (REPLACED) The core editing logic, with better safety checks.
+ * @brief (UNCHANGED) The core editing logic.
  */
 bool edit_sentence(file_in_memory_t* file_mem, int sentence_idx, int word_idx, const char* new_content) {
     
@@ -328,7 +333,7 @@ bool edit_sentence(file_in_memory_t* file_mem, int sentence_idx, int word_idx, c
     return true;
 }
 
-// --- (Rest of file is unchanged) ---
+// --- (create_backup_for_undo and get_file_counts are unchanged) ---
 
 /**
  * @brief Creates a backup of a file
@@ -393,19 +398,98 @@ void get_file_counts(const char* filename, long* word_count, long* line_count) {
 
 // --- Per-File Lock Management (Hash Map) ---
 
+// --- (All locking structs and functions are unchanged from last time) ---
+// Struct for the hash set of locked sentences
+typedef struct {
+    int index;
+    UT_hash_handle hh;
+} locked_sentence_t;
+
+// This struct now manages both file-level and sentence-level locks
 typedef struct {
     char filename[MAX_FILENAME_LEN]; 
-    pthread_rwlock_t lock;           
+    
+    // Lock for file-level operations (read, delete, save)
+    pthread_rwlock_t file_rwlock;
+    
+    // Mutex to protect the 'locked_sentences_set'
+    pthread_mutex_t sentence_lock_mutex; 
+    
+    // Hash set of currently locked sentence indices
+    locked_sentence_t* locked_sentences_set; 
+    
+    // Condition variable to wait for a sentence to be unlocked
+    pthread_cond_t sentence_lock_cond; 
+
     UT_hash_handle hh;               
 } file_lock_t;
 
 file_lock_t* g_file_lock_map = NULL;
-pthread_mutex_t g_lock_map_mutex;
+pthread_mutex_t g_lock_map_mutex; // Mutex to protect g_file_lock_map
+
+
+/**
+ * @brief Attempts to lock a specific sentence.
+ * If the sentence is already locked, this function will
+ * block until it becomes free.
+ */
+void lock_sentence(file_lock_t* file_lock, int sentence_index) {
+    pthread_mutex_lock(&file_lock->sentence_lock_mutex);
+    
+    locked_sentence_t* found;
+    HASH_FIND_INT(file_lock->locked_sentences_set, &sentence_index, found);
+    
+    // This is the "wait loop"
+    while (found != NULL) {
+        printf("   [SS-LockMgr]: Sentence %d is locked. Waiting...\n", sentence_index);
+        // Wait for a signal that *any* lock was released
+        pthread_cond_wait(&file_lock->sentence_lock_cond, &file_lock->sentence_lock_mutex);
+        
+        // After waking up, we must re-check if *our* sentence is free
+        HASH_FIND_INT(file_lock->locked_sentences_set, &sentence_index, found);
+    }
+    
+    // Lock is free. Take it.
+    locked_sentence_t* new_lock = (locked_sentence_t*)malloc(sizeof(locked_sentence_t));
+    if (new_lock) {
+        new_lock->index = sentence_index;
+        HASH_ADD_INT(file_lock->locked_sentences_set, index, new_lock);
+        printf("   [SS-LockMgr]: Sentence %d locked.\n", sentence_index);
+    }
+    
+    pthread_mutex_unlock(&file_lock->sentence_lock_mutex);
+}
+
+/**
+ * @brief Unlocks a specific sentence and wakes up waiting threads.
+ */
+void unlock_sentence(file_lock_t* file_lock, int sentence_index) {
+    pthread_mutex_lock(&file_lock->sentence_lock_mutex);
+    
+    locked_sentence_t* found;
+    HASH_FIND_INT(file_lock->locked_sentences_set, &sentence_index, found);
+    
+    if (found) {
+        HASH_DEL(file_lock->locked_sentences_set, found);
+        free(found);
+        printf("   [SS-LockMgr]: Sentence %d unlocked.\n", sentence_index);
+    } else {
+        fprintf(stderr, "   [SS-LockMgr]: !!WARNING!! Tried to unlock sentence %d, but it wasn't locked.\n", sentence_index);
+    }
+    
+    // Wake up ALL waiting threads. They will re-check if their
+    // desired sentence is free.
+    pthread_cond_broadcast(&file_lock->sentence_lock_cond);
+    
+    pthread_mutex_unlock(&file_lock->sentence_lock_mutex);
+}
+
 
 /**
  * @brief Hash Map Lock Manager Function
+ * Now returns the composite file_lock_t struct
  */
-pthread_rwlock_t* get_lock_for_file(const char* filename) {
+file_lock_t* get_lock_for_file(const char* filename) {
     file_lock_t* found_lock;
 
     pthread_mutex_lock(&g_lock_map_mutex);
@@ -414,29 +498,49 @@ pthread_rwlock_t* get_lock_for_file(const char* filename) {
 
     if (found_lock) {
         pthread_mutex_unlock(&g_lock_map_mutex);
-        return &found_lock->lock;
+        return found_lock;
     }
 
+    // Not found, create a new one
     found_lock = (file_lock_t*)malloc(sizeof(file_lock_t));
     if (found_lock == NULL) {
         perror("   [SS-LockMgr]: malloc failed for new lock");
         pthread_mutex_unlock(&g_lock_map_mutex); 
         return NULL;
     }
-
+    memset(found_lock, 0, sizeof(file_lock_t)); // Clear struct
     strcpy(found_lock->filename, filename);
-    if (pthread_rwlock_init(&found_lock->lock, NULL) != 0) {
-        perror("   [SS-LockMgr]: rwlock_init failed");
+    found_lock->locked_sentences_set = NULL;
+
+    // Initialize all the new components
+    if (pthread_rwlock_init(&found_lock->file_rwlock, NULL) != 0) {
+        perror("   [SS-LockMgr]: file_rwlock init failed");
+        free(found_lock);
+        pthread_mutex_unlock(&g_lock_map_mutex); 
+        return NULL;
+    }
+    if (pthread_mutex_init(&found_lock->sentence_lock_mutex, NULL) != 0) {
+        perror("   [SS-LockMgr]: sentence_lock_mutex init failed");
+        pthread_rwlock_destroy(&found_lock->file_rwlock);
+        free(found_lock);
+        pthread_mutex_unlock(&g_lock_map_mutex); 
+        return NULL;
+    }
+     if (pthread_cond_init(&found_lock->sentence_lock_cond, NULL) != 0) {
+        perror("   [SS-LockMgr]: sentence_lock_cond init failed");
+        pthread_rwlock_destroy(&found_lock->file_rwlock);
+        pthread_mutex_destroy(&found_lock->sentence_lock_mutex);
         free(found_lock);
         pthread_mutex_unlock(&g_lock_map_mutex); 
         return NULL;
     }
 
+
     HASH_ADD_STR(g_file_lock_map, filename, found_lock);
     printf("   [SS-LockMgr]: Initialized new lock for file '%s'\n", filename);
 
     pthread_mutex_unlock(&g_lock_map_mutex);
-    return &found_lock->lock;
+    return found_lock;
 }
 
 /**
@@ -459,7 +563,7 @@ void* handle_client_connection(void* p_conn_fd) {
         return NULL;
     }
 
-    pthread_rwlock_t* file_lock = get_lock_for_file(req.filename);
+    file_lock_t* file_lock = get_lock_for_file(req.filename);
 
     if (file_lock == NULL) {
         ss_response_t res = {0};
@@ -472,10 +576,11 @@ void* handle_client_connection(void* p_conn_fd) {
     } else {
         // --- We have a lock, now proceed with commands ---
 
+        // --- (CMD_CREATE_FILE is unchanged) ---
         if (req.command == CMD_CREATE_FILE) {
             printf("   [SS-Thread]: Handling CMD_CREATE_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_wrlock(file_lock); // Lock file
+            pthread_rwlock_wrlock(&file_lock->file_rwlock); // Lock file
             ss_response_t res = {0}; 
             FILE* fp = fopen(req.filename, "w"); 
             if (fp == NULL) {
@@ -487,17 +592,18 @@ void* handle_client_connection(void* p_conn_fd) {
                 res.status = STATUS_OK;
                 printf("   [SS-Thread]: Successfully created file '%s'\n", req.filename);
             }
-            pthread_rwlock_unlock(file_lock); // Unlock file
+            pthread_rwlock_unlock(&file_lock->file_rwlock); // Unlock file
 
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send create response failed");
             }
             response_sent = true;
 
+        // --- (CMD_GET_STATS is unchanged) ---
         } else if (req.command == CMD_GET_STATS) {
             printf("   [SS-Thread]: Handling CMD_GET_STATS for '%s'\n", req.filename);
             
-            pthread_rwlock_rdlock(file_lock); // Lock file
+            pthread_rwlock_rdlock(&file_lock->file_rwlock); // Lock file
             ss_stats_response_t res = {0}; 
             struct stat file_stat;
             if (stat(req.filename, &file_stat) < 0) {
@@ -510,17 +616,18 @@ void* handle_client_connection(void* p_conn_fd) {
                 res.stats.last_modified = file_stat.st_mtime;
                 get_file_counts(req.filename, &res.stats.word_count, &res.stats.line_count);
             }
-            pthread_rwlock_unlock(file_lock); // Unlock file
+            pthread_rwlock_unlock(&file_lock->file_rwlock); // Unlock file
 
             if (send(conn_fd, &res, sizeof(ss_stats_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send stats response failed");
             }
             response_sent = true;
 
+        // --- (CMD_READ_FILE is unchanged) ---
         } else if (req.command == CMD_READ_FILE) {
             printf("   [SS-Thread]: Handling CMD_READ_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_rdlock(file_lock); // Lock file
+            pthread_rwlock_rdlock(&file_lock->file_rwlock); // Lock file
             ss_response_t header_res = {0};
             FILE* fp = fopen(req.filename, "r");
 
@@ -536,7 +643,7 @@ void* handle_client_connection(void* p_conn_fd) {
                 if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
                     perror("   [SS-Thread]: send read OK response failed");
                     fclose(fp);
-                    pthread_rwlock_unlock(file_lock); 
+                    pthread_rwlock_unlock(&file_lock->file_rwlock); 
                     close(conn_fd);
                     return NULL;
                 }
@@ -556,19 +663,23 @@ void* handle_client_connection(void* p_conn_fd) {
                 fclose(fp);
                 printf("   [SS-Thread]: File '%s' sent successfully.\n", req.filename);
             }
-            pthread_rwlock_unlock(file_lock); // Unlock file
+            pthread_rwlock_unlock(&file_lock->file_rwlock); // Unlock file
             response_sent = true;
         
+        // --- MODIFIED ---
+        // This block is completely refactored to fix the "lost update" bug.
         } else if (req.command == CMD_WRITE_FILE) {
             printf("   [SS-Thread]: Handling CMD_WRITE_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_wrlock(file_lock); // Lock file
-            
             ss_response_t ready_res = { .status = STATUS_OK };
             ss_write_response_t final_res = { .status = STATUS_OK };
+            
+            int locked_sentence_index = -1;
+            int final_sentence_count = 0;
 
-            create_backup_for_undo(req.filename);
-            file_in_memory_t file_mem = load_file_into_memory(req.filename);
+            // --- NEW ---
+            // Create a buffer to store incoming chunks
+            edit_buffer_t buffer = { .chunks = NULL, .count = 0, .capacity = 0 };
 
             if (send(conn_fd, &ready_res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send ready-for-write response failed");
@@ -576,34 +687,104 @@ void* handle_client_connection(void* p_conn_fd) {
             } else {
                 client_write_chunk_t chunk;
                 while (recv(conn_fd, &chunk, sizeof(client_write_chunk_t), 0) == sizeof(client_write_chunk_t)) {
+                    
                     if (chunk.is_etirw) {
-                        break; 
+                        break; // Exit loop to save
                     }
-                    if (!edit_sentence(&file_mem, chunk.sentence_index, chunk.word_index, chunk.content)) {
+
+                    if (locked_sentence_index == -1) {
+                        // This is the first edit. Lock the sentence.
+                        locked_sentence_index = chunk.sentence_index;
+                        lock_sentence(file_lock, locked_sentence_index);
+                    }
+
+                    // Enforce that user can only edit the sentence they locked
+                    if (chunk.sentence_index != locked_sentence_index) {
                         final_res.status = STATUS_ERROR;
-                        strcpy(final_res.error_msg, "Failed to edit sentence (e.g., index out of bounds)");
-                        break;
+                        strcpy(final_res.error_msg, "Permission denied: Can only edit one sentence per session.");
+                        break; // Break loop, will skip save
+                    }
+                    
+                    // --- NEW ---
+                    // Add chunk to buffer instead of applying it
+                    if (buffer.count == buffer.capacity) {
+                        buffer.capacity = (buffer.capacity == 0) ? 8 : buffer.capacity * 2;
+                        client_write_chunk_t* new_buf = (client_write_chunk_t*)realloc(buffer.chunks, buffer.capacity * sizeof(client_write_chunk_t));
+                        if (!new_buf) {
+                            perror("   [SS-Thread]: realloc chunk buffer failed");
+                            final_res.status = STATUS_ERROR;
+                            strcpy(final_res.error_msg, "Server out of memory");
+                            break;
+                        }
+                        buffer.chunks = new_buf;
+                    }
+                    memcpy(&buffer.chunks[buffer.count++], &chunk, sizeof(client_write_chunk_t));
+                }
+            }
+
+            // --- NEW ---
+            // Now, perform the atomic Read-Modify-Write cycle
+            if (final_res.status == STATUS_OK && locked_sentence_index != -1) {
+                
+                printf("   [SS-Thread]: Acquiring file write lock for atomic R-M-W...\n");
+                // Get an exclusive file-level lock
+                pthread_rwlock_wrlock(&file_lock->file_rwlock);
+                
+                // 1. READ
+                file_in_memory_t file_mem = load_file_into_memory(req.filename);
+                
+                // Create backup *before* modifying
+                create_backup_for_undo(req.filename);
+
+                // 2. MODIFY
+                for (int i = 0; i < buffer.count; i++) {
+                    client_write_chunk_t* c = &buffer.chunks[i];
+                    if (!edit_sentence(&file_mem, c->sentence_index, c->word_index, c->content)) {
+                         final_res.status = STATUS_ERROR;
+                         strcpy(final_res.error_msg, "Failed to edit sentence (e.g., index out of bounds)");
+                         break; // Stop applying edits
                     }
                 }
+                
+                // 3. WRITE
                 if (final_res.status == STATUS_OK) {
                     if (!save_memory_to_file(req.filename, &file_mem)) {
                         final_res.status = STATUS_ERROR;
                         strcpy(final_res.error_msg, "Failed to save file to disk");
                     }
                 }
-                final_res.updated_sentence_count = file_mem.count;
-                if (send(conn_fd, &final_res, sizeof(ss_write_response_t), 0) < 0) {
-                    perror("   [SS-Thread]: send final write response failed");
-                }
+                
+                final_sentence_count = file_mem.count;
+                free_file_in_memory(&file_mem);
+                
+                pthread_rwlock_unlock(&file_lock->file_rwlock);
+                printf("   [SS-Thread]: Atomic R-M-W complete, lock released.\n");
             }
-            free_file_in_memory(&file_mem);
-            pthread_rwlock_unlock(file_lock); // Unlock file
+            
+            // ALWAYS unlock the sentence if we locked it
+            if (locked_sentence_index != -1) {
+                unlock_sentence(file_lock, locked_sentence_index);
+            }
+
+            // ALWAYS free the buffer
+            if (buffer.chunks) {
+                free(buffer.chunks);
+            }
+
+            final_res.updated_sentence_count = final_sentence_count;
+            
+            // Send final response
+            if (send(conn_fd, &final_res, sizeof(ss_write_response_t), 0) < 0) {
+                perror("   [SS-Thread]: send final write response failed");
+            }
+
             response_sent = true;
 
+        // --- (CMD_DELETE_FILE is unchanged) ---
         } else if (req.command == CMD_DELETE_FILE) {
             printf("   [SS-Thread]: Handling CMD_DELETE_FILE for '%s'\n", req.filename);
             
-            pthread_rwlock_wrlock(file_lock); // Lock file
+            pthread_rwlock_wrlock(&file_lock->file_rwlock); // Lock file
             ss_response_t res = {0};
 
             if (remove(req.filename) == 0) {
@@ -614,7 +795,7 @@ void* handle_client_connection(void* p_conn_fd) {
                 res.status = STATUS_ERROR;
                 strcpy(res.error_msg, "File not found or delete failed on Storage Server");
             }
-            pthread_rwlock_unlock(file_lock); // Unlock file
+            pthread_rwlock_unlock(&file_lock->file_rwlock); // Unlock file
 
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send delete response failed");
@@ -639,10 +820,20 @@ void* handle_client_connection(void* p_conn_fd) {
 
 
 // --- Main Function ---
-int main() {
+// --- (main function is unchanged from last time) ---
+int main(int argc, char *argv[]) { 
     int sock_fd;
     struct sockaddr_in nm_addr;
     ss_registration_t reg_data;
+
+    int my_client_port = MY_CLIENT_PORT;
+    if (argc > 1) {
+        my_client_port = atoi(argv[1]);
+        if (my_client_port <= 0) {
+            fprintf(stderr, "Invalid port number. Using default %d\n", MY_CLIENT_PORT);
+            my_client_port = MY_CLIENT_PORT;
+        }
+    }
 
     // --- 1. Register with Name Server ---
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -674,13 +865,13 @@ int main() {
     }
     
     strcpy(reg_data.ss_ip, MY_IP);
-    reg_data.client_port = MY_CLIENT_PORT;
+    reg_data.client_port = my_client_port; 
     if (send(sock_fd, &reg_data, sizeof(reg_data), 0) < 0) {
         perror("[Main] send registration data failed");
         close(sock_fd);
         exit(EXIT_FAILURE);
     }
-    printf("Successfully registered with Name Server.\n");
+    printf("Successfully registered with Name Server (Port: %d).\n", my_client_port);
     close(sock_fd); 
 
     // --- Initialize the global lock map mutex ---
@@ -704,7 +895,7 @@ int main() {
     memset(&ss_serv_addr, 0, sizeof(ss_serv_addr));
     ss_serv_addr.sin_family = AF_INET;
     ss_serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    ss_serv_addr.sin_port = htons(MY_CLIENT_PORT);
+    ss_serv_addr.sin_port = htons(my_client_port); 
 
     if (bind(listen_fd, (struct sockaddr*)&ss_serv_addr, sizeof(ss_serv_addr)) < 0) {
         perror("[Main] SS server bind failed");
@@ -714,7 +905,7 @@ int main() {
         perror("[Main] SS server listen failed");
         exit(EXIT_FAILURE);
     }
-    printf("\n[SS-Main]: Storage Server now listening for clients on port %d...\n", MY_CLIENT_PORT);
+    printf("\n[SS-Main]: Storage Server now listening for clients on port %d...\n", my_client_port);
 
     // --- 3. Main Accept Loop ---
     while (1) {
@@ -749,7 +940,16 @@ int main() {
     
     file_lock_t *current_lock, *tmp;
     HASH_ITER(hh, g_file_lock_map, current_lock, tmp) {
-        pthread_rwlock_destroy(&current_lock->lock); 
+        pthread_rwlock_destroy(&current_lock->file_rwlock); 
+        pthread_mutex_destroy(&current_lock->sentence_lock_mutex);
+        pthread_cond_destroy(&current_lock->sentence_lock_cond);
+        
+        locked_sentence_t *s_lock, *s_tmp;
+        HASH_ITER(hh, current_lock->locked_sentences_set, s_lock, s_tmp) {
+            HASH_DEL(current_lock->locked_sentences_set, s_lock);
+            free(s_lock);
+        }
+        
         HASH_DEL(g_file_lock_map, current_lock);    
         free(current_lock);                       
     }
