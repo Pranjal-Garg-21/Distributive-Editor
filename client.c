@@ -57,7 +57,22 @@ int connect_to_server(char* ip, int port) {
     }
     return sock_fd;
 }
-
+// --- NEW HELPER FUNCTION ---
+/**
+ * @brief Checks if a string contains only digits.
+ */
+bool is_numeric(const char *s) {
+    if (s == NULL || *s == '\0') { // Empty string
+        return false;
+    }
+    while (*s) {
+        if (!isdigit((unsigned char)*s)) {
+            return false;
+        }
+        s++;
+    }
+    return true;
+}
 // --- END NEW HELPER FUNCTION ---
 // =================================================================
 // --- Command Handler Functions ---
@@ -298,6 +313,13 @@ void do_write(const char* username, const char* filename, int initial_sentence_n
             printf("Invalid format. Use: <word_index> <content> or ETIRW\n");
             continue;
         }
+        // --- NEW VALIDATION CHECK ---
+        if (!is_numeric(word_idx_str)) {
+            printf("Invalid format. First part must be a numeric <word_index>.\n");
+            printf("Use: <word_index> <content> or ETIRW\n");
+            continue; // Go back to the prompt
+        }
+        // --- END OF NEW CHECK ---
         chunk.word_index = atoi(word_idx_str);
         strncpy(chunk.content, content_str, FILE_BUFFER_SIZE - 1);
         chunk.is_etirw = false;
