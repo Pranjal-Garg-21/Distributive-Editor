@@ -25,7 +25,8 @@ void print_help() {
     printf("  WRITE <filename> <sentence_number>\n");
     printf("  UNDO <filename>\n");
     printf("  DELETE <filename>\n");
-    printf("  INFO <filename>\n"); // <-- ADDED
+    printf("  INFO <filename>\n");
+    printf("  LIST\n"); // <-- ADDED
     printf("  ADDACCESS <R|W> <filename> <username>\n"); 
     printf("  REMACCESS <filename> <username>\n");     
     printf("  help     (Show this message)\n");
@@ -432,7 +433,6 @@ void do_undo(const char* username, const char* filename) {
     else { printf("Undo successful! File '%s' has been reverted.\n", req.filename); }
 }
 
-// --- ADD THIS NEW FUNCTION ---
 void do_info(const char* username, const char* filename) {
     client_request_t req = {0};
     req.command = CMD_GET_INFO;
@@ -527,6 +527,55 @@ void do_info(const char* username, const char* filename) {
 }
 
 
+// --- ADD THIS NEW FUNCTION ---
+void do_list(const char* username) {
+    client_request_t req = {0};
+    req.command = CMD_LIST_USERS;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) {
+        fprintf(stderr, "Error: Could not connect to Name Server.\n");
+        return;
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+        perror("recv response header from NM failed");
+        close(nm_sock_fd);
+        return;
+    }
+
+    if (nm_res.status == STATUS_ERROR) {
+        fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg);
+        close(nm_sock_fd);
+        return;
+    }
+
+    // We reuse file_count to mean user_count for this command
+    int count = nm_res.file_count; 
+    printf("\n--- Registered Users (%d) ---\n", count);
+    if (count == 0) {
+        printf("(No users found in the system)\n");
+    } else {
+        nm_user_entry_t user_entry;
+        for (int i = 0; i < count; i++) {
+            if (recv(nm_sock_fd, &user_entry, sizeof(nm_user_entry_t), 0) != sizeof(nm_user_entry_t)) {
+                perror("recv user entry failed");
+                break;
+            }
+            printf(" -> %s\n", user_entry.username);
+        }
+    }
+    printf("-------------------------------\n");
+    close(nm_sock_fd);
+}
+
+
 // =================================================================
 // --- Main Interactive Loop ---
 // =================================================================
@@ -584,11 +633,16 @@ int main(int argc, char *argv[]) {
             if (filename == NULL) fprintf(stderr, "Usage: STREAM <filename>\n");
             else do_stream(username, filename);
         
-        } else if (strcmp(command, "INFO") == 0) { // NEW
+        } else if (strcmp(command, "INFO") == 0) {
             char* filename = strtok(NULL, " \n");
             if (filename == NULL) fprintf(stderr, "Usage: INFO <filename>\n");
             else do_info(username, filename);
         
+        // --- ADDED THIS BLOCK ---
+        } else if (strcmp(command, "LIST") == 0) {
+            do_list(username);
+        // --- END OF ADDED BLOCK ---
+
         } else if (strcmp(command, "WRITE") == 0) { 
             char* filename = strtok(NULL, " \n");
             char* sentence_str = strtok(NULL, " \n");

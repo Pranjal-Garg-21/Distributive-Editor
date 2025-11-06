@@ -43,7 +43,8 @@ typedef enum {
     CMD_REM_ACCESS,
     CMD_STREAM_FILE,
     CMD_UNDO_FILE,
-    CMD_GET_INFO      // NEW: For the INFO command
+    CMD_GET_INFO,
+    CMD_LIST_USERS      // NEW: For the LIST command
 } client_command_t;
 
 // --- Access Level Enum ---
@@ -81,7 +82,7 @@ typedef struct {
     char error_msg[MAX_ERROR_MSG_LEN]; 
     char ss_ip[MAX_IP_LEN];
     int ss_port;
-    int file_count;
+    int file_count; // Re-used for LIST to send user_count
 } nm_response_t;
 
 // NM sends this for each file in a VIEW list
@@ -92,7 +93,7 @@ typedef struct {
     int ss_port;
 } nm_file_entry_t;
 
-// --- NEW: Structs for INFO command ---
+// --- Structs for INFO command ---
 
 // NM -> Client response for INFO (Header)
 typedef struct {
@@ -111,7 +112,14 @@ typedef struct {
     access_level_t level;
 } nm_acl_entry_t;
 
-// --- End INFO Structs ---
+// --- NEW: Structs for LIST command ---
+
+// NM -> Client, sent file_count (as user_count) times after header
+typedef struct {
+    char username[MAX_USERNAME_LEN];
+} nm_user_entry_t;
+
+// --- End LIST Structs ---
 
 
 // SS -> Client (for CREATE/DELETE/Ready-to-Write)

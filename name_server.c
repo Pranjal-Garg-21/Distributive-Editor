@@ -295,7 +295,6 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 
-// --- NEW: Handler for INFO ---
 void handle_get_info(int conn_fd, client_request_t req) {
     nm_info_response_t res_header = {0};
     
@@ -361,6 +360,93 @@ void handle_get_info(int conn_fd, client_request_t req) {
     printf("   ACL sent.\n");
 }
 
+
+// --- ADD THIS NEW FUNCTION ---
+
+// Helper struct for finding unique users
+typedef struct {
+    char username[MAX_USERNAME_LEN]; 
+    UT_hash_handle hh;
+} temp_user_set_t;
+
+void handle_list_users(int conn_fd, client_request_t req) {
+    printf("   Handling CMD_LIST_USERS...\n");
+    temp_user_set_t* user_set = NULL;
+    nm_response_t res_header = {0};
+
+    // We need to find all unique usernames.
+    // Usernames are stored as:
+    // 1. Owners (in file_info_t)
+    // 2. ACL entries (in access_entry_t)
+    // We use a temporary hash set to ensure uniqueness.
+    
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    
+    file_info_t *current_file, *tmp_file;
+    HASH_ITER(hh, g_file_map, current_file, tmp_file) {
+        
+        // --- 1. Add owner ---
+        temp_user_set_t* found;
+        HASH_FIND_STR(user_set, current_file->owner, found);
+        if (found == NULL) {
+            temp_user_set_t* new_user = (temp_user_set_t*)malloc(sizeof(temp_user_set_t));
+            if (new_user) {
+                strcpy(new_user->username, current_file->owner);
+                HASH_ADD_STR(user_set, username, new_user);
+            } else {
+                perror("malloc failed for temp_user_set");
+            }
+        }
+
+        // --- 2. Add all users from ACL ---
+        access_entry_t *current_access, *tmp_access;
+        HASH_ITER(hh, current_file->access_list, current_access, tmp_access) {
+            HASH_FIND_STR(user_set, current_access->username, found);
+            if (found == NULL) {
+                temp_user_set_t* new_user = (temp_user_set_t*)malloc(sizeof(temp_user_set_t));
+                if (new_user) {
+                    strcpy(new_user->username, current_access->username);
+                    HASH_ADD_STR(user_set, username, new_user);
+                } else {
+                     perror("malloc failed for temp_user_set (acl)");
+                }
+            }
+        }
+    }
+    
+    int user_count = HASH_COUNT(user_set);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    // --- Send response back to client ---
+    res_header.status = STATUS_OK;
+    res_header.file_count = user_count; // Re-using file_count field
+
+    if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
+        perror("send LIST response header failed");
+    } else {
+        printf("   Sending user list (%d users)...\n", user_count);
+        nm_user_entry_t user_entry;
+        temp_user_set_t *current_user, *tmp_user;
+        
+        // Iterate and send each user
+        HASH_ITER(hh, user_set, current_user, tmp_user) {
+            strcpy(user_entry.username, current_user->username);
+            if (send(conn_fd, &user_entry, sizeof(nm_user_entry_t), 0) < 0) {
+                perror("send user entry failed");
+                break;
+            }
+        }
+    }
+
+    // --- Cleanup temporary hash set ---
+    temp_user_set_t *current_user, *tmp_user;
+    HASH_ITER(hh, user_set, current_user, tmp_user) {
+        HASH_DEL(user_set, current_user);
+        free(current_user);
+    }
+    printf("   User list sent and cleaned up.\n");
+}
+
 // --- Main Connection Handler ---
 void* handle_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
@@ -423,8 +509,15 @@ void* handle_connection(void* p_conn_fd) {
         } else if (req.command == CMD_STREAM_FILE) {
             printf("   Handling CMD_STREAM_FILE for '%s'\n", req.filename);
             handle_read_file(&res, req); // Re-use read logic
+        
+        // --- ADDED THIS BLOCK ---
+        } else if (req.command == CMD_LIST_USERS) {
+            printf("   Handling CMD_LIST_USERS for user '%s'\n", req.username);
+            handle_list_users(conn_fd, req); // Sends its own multi-part response
+            response_sent_by_handler = 1;
+        // --- END OF ADDED BLOCK ---
 
-        } else if (req.command == CMD_GET_INFO) { // NEW
+        } else if (req.command == CMD_GET_INFO) {
             printf("   Handling CMD_GET_INFO for '%s'\n", req.filename);
             handle_get_info(conn_fd, req); // Sends its own multi-part response
             response_sent_by_handler = 1;
