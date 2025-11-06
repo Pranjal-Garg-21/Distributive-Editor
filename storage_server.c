@@ -693,9 +693,37 @@ void* handle_client_connection(void* p_conn_fd) {
                     }
 
                     if (locked_sentence_index == -1) {
-                        // This is the first edit. Lock the sentence.
+                        // --- START OF FIX ---
+                        // This is the first edit. We MUST validate the index.
+                        
+                        // 1. Get a read lock to safely read the file
+                        printf("   [SS-Thread]: Validating sentence index %d...\n", chunk.sentence_index);
+                        pthread_rwlock_rdlock(&file_lock->file_rwlock);
+                        file_in_memory_t temp_file = load_file_into_memory(req.filename);
+                        
+                        // 2. Validate the index.
+                        // We allow writing to index 'count' (which is an append).
+                        if (chunk.sentence_index < 0 || chunk.sentence_index > temp_file.count) {
+                            printf("   [SS-Thread]: Validation failed. Index %d out of bounds (0-%d).\n", 
+                                   chunk.sentence_index, temp_file.count);
+                            final_res.status = STATUS_ERROR;
+                            sprintf(final_res.error_msg, "Sentence index %d is out of bounds (valid: 0-%d)", 
+                                    chunk.sentence_index, temp_file.count);
+                            
+                            // 3. Clean up and break
+                            free_file_in_memory(&temp_file);
+                            pthread_rwlock_unlock(&file_lock->file_rwlock);
+                            break; // Exit the recv() loop
+                        }
+                        
+                        // 4. Validation passed. Clean up and proceed.
+                        free_file_in_memory(&temp_file);
+                        pthread_rwlock_unlock(&file_lock->file_rwlock);
+                        
+                        // 5. NOW we can lock the sentence.
                         locked_sentence_index = chunk.sentence_index;
                         lock_sentence(file_lock, locked_sentence_index);
+                        // --- END OF FIX ---
                     }
 
                     // Enforce that user can only edit the sentence they locked
@@ -736,24 +764,38 @@ void* handle_client_connection(void* p_conn_fd) {
                 // Create backup *before* modifying
                 create_backup_for_undo(req.filename);
 
-                // 2. MODIFY
-                for (int i = 0; i < buffer.count; i++) {
-                    client_write_chunk_t* c = &buffer.chunks[i];
-                    if (!edit_sentence(&file_mem, c->sentence_index, c->word_index, c->content)) {
-                         final_res.status = STATUS_ERROR;
-                         strcpy(final_res.error_msg, "Failed to edit sentence (e.g., index out of bounds)");
-                         break; // Stop applying edits
-                    }
-                }
-                
-                // 3. WRITE
-                if (final_res.status == STATUS_OK) {
-                    if (!save_memory_to_file(req.filename, &file_mem)) {
+                // 2. RE-VALIDATE (before backup)
+                bool re_validation_passed = true;
+                if (buffer.count > 0) { // Only check if there are edits
+                    int first_index = buffer.chunks[0].sentence_index;
+                    if (first_index < 0 || first_index > file_mem.count) {
+                        re_validation_passed = false;
                         final_res.status = STATUS_ERROR;
-                        strcpy(final_res.error_msg, "Failed to save file to disk");
+                        sprintf(final_res.error_msg, "Write failed: File was modified by another user (index %d no longer valid)", first_index);
                     }
                 }
-                
+                if (re_validation_passed) {
+                    // 3. BACKUP (Now that we know it's valid)
+                    create_backup_for_undo(req.filename);
+
+                    // 4. MODIFY
+                    for (int i = 0; i < buffer.count; i++) {
+                        client_write_chunk_t* c = &buffer.chunks[i];
+                        if (!edit_sentence(&file_mem, c->sentence_index, c->word_index, c->content)) {
+                            final_res.status = STATUS_ERROR; // Should be impossible, but good to check
+                            strcpy(final_res.error_msg, "Internal server error during edit");
+                            break; 
+                        }
+                    }
+                    
+                    // 5. WRITE
+                    if (final_res.status == STATUS_OK) {
+                        if (!save_memory_to_file(req.filename, &file_mem)) {
+                            final_res.status = STATUS_ERROR;
+                            strcpy(final_res.error_msg, "Failed to save file to disk");
+                        }
+                    }
+                }
                 final_sentence_count = file_mem.count;
                 free_file_in_memory(&file_mem);
                 
@@ -801,6 +843,46 @@ void* handle_client_connection(void* p_conn_fd) {
                 perror("   [SS-Thread]: send delete response failed");
             }
             response_sent = true;
+        }
+        else if (req.command == CMD_UNDO_FILE) {
+            printf("   [SS-Thread]: Handling CMD_UNDO_FILE for '%s'\n", req.filename);
+
+            pthread_rwlock_wrlock(&file_lock->file_rwlock); // Lock file
+            
+            ss_response_t res = {0};
+            char backup_filename[MAX_FILENAME_LEN + 5];
+            sprintf(backup_filename, "%s.bak", req.filename);
+
+            // Check if the .bak file exists
+            struct stat buffer;
+            if (stat(backup_filename, &buffer) != 0) {
+                // File not found (or other error)
+                if (errno == ENOENT) {
+                    strcpy(res.error_msg, "No undo history found for this file.");
+                } else {
+                    perror("   [SS-Thread]: stat failed on .bak");
+                    strcpy(res.error_msg, "Error checking undo history.");
+                }
+                res.status = STATUS_ERROR;
+            } else {
+                // File exists, perform the rename
+                if (rename(backup_filename, req.filename) == 0) {
+                    res.status = STATUS_OK;
+                    printf("   [SS-Thread]: File '%s' reverted successfully.\n", req.filename);
+                } else {
+                    perror("   [SS-Thread]: rename failed");
+                    res.status = STATUS_ERROR;
+                    strcpy(res.error_msg, "Undo failed on Storage Server.");
+                }
+            }
+            
+            pthread_rwlock_unlock(&file_lock->file_rwlock); // Unlock file
+
+            if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
+                perror("   [SS-Thread]: send undo response failed");
+            }
+            response_sent = true;
+        // --- END OF BLOCK ---
         }
     } 
 

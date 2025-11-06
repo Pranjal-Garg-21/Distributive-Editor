@@ -402,6 +402,9 @@ void* handle_connection(void* p_conn_fd) {
              printf("   Handling CMD_REM_ACCESS for '%s'\n", req.filename);
              handle_rem_access(&res, req);
 
+        }else if (req.command == CMD_UNDO_FILE) {
+            printf("   Handling CMD_UNDO_FILE for '%s'\n", req.filename);
+            handle_write_file(&res, req);
         } else if (req.command == CMD_DELETE_FILE) {
             printf("   Handling CMD_DELETE_FILE for '%s'\n", req.filename);
             handle_delete_file(&res, req);

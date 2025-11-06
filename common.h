@@ -42,6 +42,7 @@ typedef enum {
     CMD_ADD_ACCESS,   // NEW
     CMD_REM_ACCESS ,   // NEW
     CMD_STREAM_FILE,
+    CMD_UNDO_FILE
 } client_command_t;
 
 // --- NEW: Access Level Enum ---

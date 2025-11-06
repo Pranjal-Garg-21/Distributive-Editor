@@ -23,6 +23,7 @@ void print_help() {
     printf("  READ <filename>\n");
     printf("  STREAM <filename>\n"); // NEW
     printf("  WRITE <filename> <sentence_number>\n");
+    printf("  UNDO <filename>\n");
     printf("  DELETE <filename>\n");
     printf("  ADDACCESS <R|W> <filename> <username>\n"); 
     printf("  REMACCESS <filename> <username>\n");     
@@ -438,6 +439,60 @@ void do_delete(const char* username, const char* filename) {
     else { printf("File '%s' deleted successfully!\n", req.filename); }
 }
 
+// --- ADD THIS NEW FUNCTION ---
+void do_undo(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_UNDO_FILE;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
+    // 1. Contact Name Server to check permission
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+        perror("recv response from NM failed"); 
+        close(nm_sock_fd); 
+        return;
+    }
+    close(nm_sock_fd); 
+
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); 
+        return; 
+    }
+
+    // 2. Contact Storage Server to execute undo
+    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
+    if (ss_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); 
+        return; 
+    }
+
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    ss_response_t ss_res;
+    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("recv response from SS failed"); 
+        close(ss_sock_fd); 
+        return;
+    }
+    close(ss_sock_fd);
+
+    if (ss_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Storage Server]: %s\n", ss_res.error_msg); 
+    } else { 
+        printf("Undo successful! File '%s' has been reverted.\n", req.filename); 
+    }
+}
 
 // =================================================================
 // --- Main Interactive Loop ---
@@ -539,7 +594,15 @@ int main(int argc, char *argv[]) {
                 do_delete(username, filename);
             }
         
-        } else {
+        } else if (strcmp(command, "UNDO") == 0) {
+            char* filename = strtok(NULL, " \n");
+            if (filename == NULL) {
+                fprintf(stderr, "Usage: UNDO <filename>\n");
+            } else {
+                do_undo(username, filename);
+            }
+        } 
+        else {
             fprintf(stderr, "Unknown command: '%s'. Type 'help' for commands.\n", command);
         }
     }
