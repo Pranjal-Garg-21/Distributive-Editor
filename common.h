@@ -39,13 +39,14 @@ typedef enum {
     CMD_READ_FILE,
     CMD_GET_STATS,
     CMD_WRITE_FILE,
-    CMD_ADD_ACCESS,   // NEW
-    CMD_REM_ACCESS ,   // NEW
+    CMD_ADD_ACCESS,
+    CMD_REM_ACCESS,
     CMD_STREAM_FILE,
-    CMD_UNDO_FILE
+    CMD_UNDO_FILE,
+    CMD_GET_INFO      // NEW: For the INFO command
 } client_command_t;
 
-// --- NEW: Access Level Enum ---
+// --- Access Level Enum ---
 typedef enum {
     ACCESS_READ,
     ACCESS_WRITE
@@ -64,30 +65,24 @@ typedef struct {
 // Client sends this to NM
 typedef struct {
     client_command_t command;
-    char username[MAX_USERNAME_LEN];    // The user running the command
+    char username[MAX_USERNAME_LEN];
     char filename[MAX_FILENAME_LEN];
 
-    // --- Flags for VIEW ---
     bool view_all; // -a
     bool view_long; // -l
 
-    // --- NEW: Fields for Access Control ---
-    char target_username[MAX_USERNAME_LEN]; // The user to grant/revoke access
-    access_level_t access_level;            // R or W
+    char target_username[MAX_USERNAME_LEN];
+    access_level_t access_level;
 } client_request_t;
 
-// NM sends this back to Client
+// NM sends this back to Client (Generic)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN]; 
-
     char ss_ip[MAX_IP_LEN];
     int ss_port;
-
     int file_count;
 } nm_response_t;
-
-// ... (Rest of the file is unchanged) ...
 
 // NM sends this for each file in a VIEW list
 typedef struct {
@@ -97,44 +92,67 @@ typedef struct {
     int ss_port;
 } nm_file_entry_t;
 
+// --- NEW: Structs for INFO command ---
+
+// NM -> Client response for INFO (Header)
+typedef struct {
+    response_status_t status;
+    char error_msg[MAX_ERROR_MSG_LEN];
+    
+    char owner[MAX_USERNAME_LEN];
+    char ss_ip[MAX_IP_LEN];
+    int ss_port;
+    int acl_count; // How many entries to expect
+} nm_info_response_t;
+
+// NM -> Client, sent acl_count times after header
+typedef struct {
+    char username[MAX_USERNAME_LEN];
+    access_level_t level;
+} nm_acl_entry_t;
+
+// --- End INFO Structs ---
+
+
 // SS -> Client (for CREATE/DELETE/Ready-to-Write)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN]; 
 } ss_response_t;
 
-// Client -> SS (for each write operation)
+// --- (WRITE Protocol Structs are unchanged) ---
 typedef struct {
     int sentence_index;
     int word_index;
     char content[FILE_BUFFER_SIZE];
-    bool is_etirw; // true if this is the final ETIRW command
+    bool is_etirw;
 } client_write_chunk_t;
-
-// SS -> Client (after *each* non-ETIRW write chunk)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN];
     int new_active_sentence_index;  
     int new_total_sentence_count; 
 } ss_write_chunk_response_t;
-
-// SS -> Client (sent once after ETIRW is received)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN]; 
     int updated_sentence_count; 
 } ss_write_response_t;
 
-// Struct for file statistics
+
+// --- Structs for READ/STATS ---
+
+// UPDATED: Added created/accessed times
 typedef struct {
     long char_count;
     long word_count;
     long line_count;
     time_t last_modified;
+    time_t last_accessed; // NEW
+    time_t time_created;  // NEW (st_ctime)
 } ss_file_stats_t;
 
-// SS -> Client (for GET_STATS)
+// SS -> Client (for GET_STATS, now with more info)
 typedef struct {
     response_status_t status;
     char error_msg[MAX_ERROR_MSG_LEN];
