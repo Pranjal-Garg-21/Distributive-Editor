@@ -44,7 +44,8 @@ typedef enum {
     CMD_STREAM_FILE,
     CMD_UNDO_FILE,
     CMD_GET_INFO,
-    CMD_LIST_USERS      // NEW: For the LIST command
+    CMD_LIST_USERS,    
+    CMD_EXEC
 } client_command_t;
 
 // --- Access Level Enum ---

@@ -10,6 +10,7 @@
 #include "common.h"
 #include "uthash.h" 
 
+
 // --- (All structs, globals, and helpers up to handle_delete_file are unchanged) ---
 #define MAX_STORAGE_SERVERS 10
 typedef struct { char ip[MAX_IP_LEN]; int client_port; } ss_info_t;
@@ -21,6 +22,34 @@ int server_count = 0;
 pthread_rwlock_t server_list_rwlock; 
 file_info_t* g_file_map = NULL; 
 pthread_rwlock_t file_map_rwlock;
+
+/**
+ * @brief Connects to a server at the given IP and port.
+ * (Copied from client.c, as NM needs to act as a client to SS)
+ */
+int connect_to_server(char* ip, int port) {
+    int sock_fd;
+    struct sockaddr_in serv_addr;
+    sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd < 0) {
+        perror("socket creation failed");
+        return -1;
+    }
+    memset(&serv_addr, 0, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, ip, &serv_addr.sin_addr) <= 0) {
+        perror("invalid server IP address");
+        close(sock_fd);
+        return -1;
+    }
+    if (connect(sock_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+        close(sock_fd);
+        return -1;
+    }
+    return sock_fd;
+}
+
 bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level) {
     if (file == NULL) return false;
     access_entry_t* found_access;
@@ -30,6 +59,132 @@ bool check_permission(file_info_t* file, const char* username, nm_access_level_t
     if (required_level == NM_ACCESS_WRITE) { return (found_access->level == NM_ACCESS_WRITE); }
     return false;
 }
+
+/**
+ * @brief Handles the EXEC command.
+ * 1. Checks client's READ permission.
+ * 2. Connects to the SS and fetches the file content.
+ * 3. Saves content to a /tmp file.
+ * 4. Executes the temp file with "sh" via popen().
+ * 5. Pipes the stdout/stderr of the command back to the client.
+ */
+void handle_exec_file(int client_conn_fd, client_request_t req) {
+    printf("   Handling CMD_EXEC for '%s' by user '%s'\n", req.filename, req.username);
+
+    char ss_ip[MAX_IP_LEN];
+    int ss_port;
+    nm_response_t res_header = {0}; // This is the header we send to the client
+
+    // --- Step 1: Authorize and find file location ---
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    pthread_rwlock_rdlock(&server_list_rwlock);
+
+    file_info_t* found_file;
+    HASH_FIND_STR(g_file_map, req.filename, found_file);
+
+    if (!found_file) {
+        res_header.status = STATUS_ERROR;
+        strcpy(res_header.error_msg, "File not found");
+    } else if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
+        res_header.status = STATUS_ERROR;
+        strcpy(res_header.error_msg, "Permission denied (Read access required)");
+    } else if (found_file->ss_index >= server_count) {
+        res_header.status = STATUS_ERROR;
+        strcpy(res_header.error_msg, "Storage Server for this file is offline");
+    } else {
+        // All good. Copy location and set status OK.
+        res_header.status = STATUS_OK;
+        strcpy(ss_ip, server_list[found_file->ss_index].ip);
+        ss_port = server_list[found_file->ss_index].client_port;
+    }
+
+    pthread_rwlock_unlock(&server_list_rwlock);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    // If any check failed, send error response to client and we're done.
+    if (res_header.status == STATUS_ERROR) {
+        send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
+        return; // NOTE: We do NOT close client_conn_fd here, main handler does.
+    }
+
+    // --- Step 2: NM acts as client to fetch file from SS ---
+    int ss_sock_fd = connect_to_server(ss_ip, ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "   [EXEC] NM failed to connect to SS at %s:%d\n", ss_ip, ss_port);
+        res_header.status = STATUS_ERROR;
+        strcpy(res_header.error_msg, "NM Error: Could not connect to Storage Server");
+        send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
+        return;
+    }
+
+    // Re-use the request struct, but set command to READ
+    req.command = CMD_READ_FILE;
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    ss_response_t ss_res; // SS's header
+    recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0);
+
+    if (ss_res.status == STATUS_ERROR) {
+        fprintf(stderr, "   [EXEC] SS returned error: %s\n", ss_res.error_msg);
+        res_header.status = STATUS_ERROR;
+        strncpy(res_header.error_msg, ss_res.error_msg, MAX_ERROR_MSG_LEN -1);
+        send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
+        close(ss_sock_fd);
+        return;
+    }
+
+    // --- Step 3: Save file content to a temp file on NM ---
+    char temp_filename[] = "/tmp/nm_exec_XXXXXX";
+    int temp_fd = mkstemp(temp_filename);
+    if (temp_fd < 0) {
+        perror("   [EXEC] mkstemp failed");
+        res_header.status = STATUS_ERROR;
+        strcpy(res_header.error_msg, "NM Error: Could not create temp exec file");
+        send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
+        close(ss_sock_fd);
+        return;
+    }
+
+    ss_file_data_chunk_t chunk;
+    while (recv(ss_sock_fd, &chunk, sizeof(ss_file_data_chunk_t), 0) == sizeof(ss_file_data_chunk_t) && chunk.data_size > 0) {
+        write(temp_fd, chunk.data, chunk.data_size);
+    }
+    close(temp_fd);
+    close(ss_sock_fd);
+
+    // --- Step 4: Send "OK" header to client *before* executing ---
+    // This tells the client to switch to "raw output" mode.
+    send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
+
+    // --- Step 5: Execute and pipe output back to client ---
+    char exec_command[MAX_FILENAME_LEN + 10];
+    // Execute as shell commands [cite: 124]
+    sprintf(exec_command, "sh %s 2>&1", temp_filename); // "2>&1" merges stderr into stdout
+
+    printf("   [EXEC] Running: %s\n", exec_command);
+    FILE* pipe_fp = popen(exec_command, "r");
+    if (pipe_fp == NULL) {
+        perror("   [EXEC] popen failed");
+        // Client is already waiting for output, just send an error string
+        send(client_conn_fd, "NM Error: popen() failed\n", 25, 0);
+    } else {
+        char pipe_buffer[4096];
+        // Read line-by-line from the command's output
+        while (fgets(pipe_buffer, sizeof(pipe_buffer), pipe_fp) != NULL) {
+            // Send that line directly to the client
+            if (send(client_conn_fd, pipe_buffer, strlen(pipe_buffer), 0) < 0) {
+                perror("   [EXEC] send to client failed, pipe broken");
+                break; // Stop if client disconnects
+            }
+        }
+        pclose(pipe_fp);
+    }
+
+    // --- Step 6: Cleanup ---
+    unlink(temp_filename); // Delete the temporary file
+    printf("   [EXEC] Finished and cleaned up %s\n", temp_filename);
+}
+
 void handle_create_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
     file_info_t* found_file;
@@ -543,7 +698,12 @@ void* handle_connection(void* p_conn_fd) {
             // UNDO just needs write permission, which handle_write_file checks
             handle_write_file(&res, req);
         
-        } else {
+        } else if (req.command == CMD_EXEC) {
+            printf("   Handling CMD_EXEC for '%s'\n", req.filename);
+            handle_exec_file(conn_fd, req);
+            response_sent_by_handler = 1; // IMPORTANT!
+        }
+        else {
             res.status = STATUS_ERROR;
             strcpy(res.error_msg, "Unknown command");
         }
