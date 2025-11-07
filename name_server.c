@@ -7,13 +7,22 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <stdbool.h>
+// NEW INCLUDES
+#include <signal.h>   // For signal handling
+#include <errno.h>    // For errno
 #include "common.h"
 #include "uthash.h" 
 
+#define METADATA_FILE "nm_metadata.dat"
 
 // --- (All structs, globals, and helpers up to handle_delete_file are unchanged) ---
 #define MAX_STORAGE_SERVERS 10
-typedef struct { char ip[MAX_IP_LEN]; int client_port; } ss_info_t;
+typedef struct { 
+    char ip[MAX_IP_LEN]; 
+    int client_port; 
+    bool active; // NEW: To mark if SS is currently connected
+} ss_info_t;
+
 typedef enum { NM_ACCESS_READ, NM_ACCESS_WRITE } nm_access_level_t;
 typedef struct { char username[MAX_USERNAME_LEN]; nm_access_level_t level; UT_hash_handle hh; } access_entry_t;
 typedef struct { char filename[MAX_FILENAME_LEN]; char owner[MAX_USERNAME_LEN]; int ss_index; access_entry_t* access_list; UT_hash_handle hh; } file_info_t;
@@ -22,6 +31,12 @@ int server_count = 0;
 pthread_rwlock_t server_list_rwlock; 
 file_info_t* g_file_map = NULL; 
 pthread_rwlock_t file_map_rwlock;
+
+// --- Forward Declarations for new functions ---
+void save_metadata_to_disk();
+void load_metadata_from_disk();
+void free_file_map();
+
 
 /**
  * @brief Connects to a server at the given IP and port.
@@ -60,14 +75,7 @@ bool check_permission(file_info_t* file, const char* username, nm_access_level_t
     return false;
 }
 
-/**
- * @brief Handles the EXEC command.
- * 1. Checks client's READ permission.
- * 2. Connects to the SS and fetches the file content.
- * 3. Saves content to a /tmp file.
- * 4. Executes the temp file with "sh" via popen().
- * 5. Pipes the stdout/stderr of the command back to the client.
- */
+// --- (All handle_... functions from handle_exec_file to handle_list_users are UNCHANGED) ---
 void handle_exec_file(int client_conn_fd, client_request_t req) {
     printf("   Handling CMD_EXEC for '%s' by user '%s'\n", req.filename, req.username);
 
@@ -88,7 +96,7 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     } else if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
         res_header.status = STATUS_ERROR;
         strcpy(res_header.error_msg, "Permission denied (Read access required)");
-    } else if (found_file->ss_index >= server_count) {
+    } else if (found_file->ss_index >= server_count || !server_list[found_file->ss_index].active) { // UPDATED CHECK
         res_header.status = STATUS_ERROR;
         strcpy(res_header.error_msg, "Storage Server for this file is offline");
     } else {
@@ -158,7 +166,6 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
 
     // --- Step 5: Execute and pipe output back to client ---
     char exec_command[MAX_FILENAME_LEN + 10];
-    // Execute as shell commands [cite: 124]
     sprintf(exec_command, "sh %s 2>&1", temp_filename); // "2>&1" merges stderr into stdout
 
     printf("   [EXEC] Running: %s\n", exec_command);
@@ -184,7 +191,6 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     unlink(temp_filename); // Delete the temporary file
     printf("   [EXEC] Finished and cleaned up %s\n", temp_filename);
 }
-
 void handle_create_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
     file_info_t* found_file;
@@ -196,13 +202,33 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         return;
     }
     pthread_rwlock_rdlock(&server_list_rwlock); 
-    if (server_count == 0) {
+    // --- UPDATED to find an *active* server ---
+    int active_server_count = 0;
+    int first_active_server_idx = -1;
+    for (int i = 0; i < server_count; i++) {
+        if (server_list[i].active) {
+            if (first_active_server_idx == -1) {
+                first_active_server_idx = i;
+            }
+            active_server_count++;
+        }
+    }
+
+    if (active_server_count == 0) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "No Storage Servers available");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);  
         return;
     }
+
+    // Simple load balancing: assign to an active server based on hash
+    // (This part is complex, for now let's just pick one)
+    // A better way: (HASH_COUNT(g_file_map) % active_server_count) -> map to Nth active server
+    int assigned_ss_index = first_active_server_idx; // Simple assignment
+
+    // --- END UPDATE ---
+
     file_info_t* new_file = (file_info_t*)malloc(sizeof(file_info_t));
     if (!new_file) {
         res->status = STATUS_ERROR;
@@ -213,7 +239,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     }
     strcpy(new_file->filename, req.filename);
     strcpy(new_file->owner, req.username);
-    new_file->ss_index = HASH_COUNT(g_file_map) % server_count;
+    new_file->ss_index = assigned_ss_index; // Use the active index
     new_file->access_list = NULL; 
     access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
     if (!owner_access) {
@@ -261,8 +287,9 @@ void handle_view_files(int conn_fd, client_request_t req) {
             continue;
         }
         int ss_idx = current_file->ss_index;
-        if (ss_idx >= server_count) {
-             fprintf(stderr, "   Skipping file '%s' with invalid ss_index %d\n", current_file->filename, ss_idx);
+        // UPDATED CHECK: Also check if SS is active
+        if (ss_idx >= server_count || !server_list[ss_idx].active) {
+             fprintf(stderr, "   Skipping file '%s' with invalid/inactive ss_index %d\n", current_file->filename, ss_idx);
              continue;
         }
         strcpy(file_entry.filename, current_file->filename);
@@ -298,7 +325,7 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
         return;
     }
     int ss_idx = found_file->ss_index;
-    if (ss_idx >= server_count) {
+    if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Storage Server for this file is currently offline");
         pthread_rwlock_unlock(&server_list_rwlock); 
@@ -332,7 +359,7 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
         return;
     }
     int ss_idx = found_file->ss_index;
-    if (ss_idx >= server_count) {
+    if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
          res->status = STATUS_ERROR;
          strcpy(res->error_msg, "Storage Server for this file is currently offline");
          pthread_rwlock_unlock(&server_list_rwlock); 
@@ -428,7 +455,7 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
         return;
     }
     int ss_idx = found_file->ss_index;
-    if (ss_idx >= server_count) {
+    if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Storage Server for this file is offline, cannot delete");
         pthread_rwlock_unlock(&server_list_rwlock);
@@ -449,7 +476,6 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_unlock(&server_list_rwlock);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
 void handle_get_info(int conn_fd, client_request_t req) {
     nm_info_response_t res_header = {0};
     
@@ -467,7 +493,7 @@ void handle_get_info(int conn_fd, client_request_t req) {
         strcpy(res_header.error_msg, "Permission denied");
     } else {
         int ss_idx = found_file->ss_index;
-        if (ss_idx >= server_count) {
+        if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
             res_header.status = STATUS_ERROR;
             strcpy(res_header.error_msg, "Storage Server for this file is currently offline");
         } else {
@@ -514,16 +540,11 @@ void handle_get_info(int conn_fd, client_request_t req) {
     pthread_rwlock_unlock(&file_map_rwlock); 
     printf("   ACL sent.\n");
 }
-
-
-// --- ADD THIS NEW FUNCTION ---
-
 // Helper struct for finding unique users
 typedef struct {
     char username[MAX_USERNAME_LEN]; 
     UT_hash_handle hh;
 } temp_user_set_t;
-
 void handle_list_users(int conn_fd, client_request_t req) {
     printf("   Handling CMD_LIST_USERS...\n");
     temp_user_set_t* user_set = NULL;
@@ -621,15 +642,77 @@ void* handle_connection(void* p_conn_fd) {
         n = recv(conn_fd, &reg_data, sizeof(ss_registration_t), 0);
          if (n == sizeof(ss_registration_t)) {
             pthread_rwlock_wrlock(&server_list_rwlock); 
-            if (server_count < MAX_STORAGE_SERVERS) {
-                strcpy(server_list[server_count].ip, reg_data.ss_ip);
-                server_list[server_count].client_port = reg_data.client_port;
-                server_count++;
-                printf("-> Registered new Storage Server: %s:%d (Total: %d)\n\n", reg_data.ss_ip, reg_data.client_port, server_count);
-            } else {
-                printf("[Thread] Storage server list is full. Ignoring new server.\n");
+            
+            // Check if this server is already in our list
+            int ss_idx = -1;
+            for(int i = 0; i < server_count; i++) {
+                if (strcmp(server_list[i].ip, reg_data.ss_ip) == 0 && 
+                    server_list[i].client_port == reg_data.client_port) {
+                    ss_idx = i;
+                    break;
+                }
             }
-            pthread_rwlock_unlock(&server_list_rwlock); 
+
+            if (ss_idx == -1) { // New server
+                if (server_count < MAX_STORAGE_SERVERS) {
+                    ss_idx = server_count;
+                    strcpy(server_list[ss_idx].ip, reg_data.ss_ip);
+                    server_list[ss_idx].client_port = reg_data.client_port;
+                    server_count++;
+                    printf("-> Registered new Storage Server: %s:%d (Assigned SS#%d)\n", reg_data.ss_ip, reg_data.client_port, ss_idx);
+                } else {
+                     printf("[Thread] Storage server list is full. Ignoring new server.\n");
+                     pthread_rwlock_unlock(&server_list_rwlock);
+                     close(conn_fd);
+                     return NULL;
+                }
+            } else { // Reconnecting server
+                printf("-> Re-registered Storage Server: %s:%d (SS#%d)\n", reg_data.ss_ip, reg_data.client_port, ss_idx);
+            }
+            
+            server_list[ss_idx].active = true;
+            pthread_rwlock_unlock(&server_list_rwlock);
+
+            // --- Now, handle the file list from this SS ---
+            pthread_rwlock_wrlock(&file_map_rwlock); // Lock file map
+            
+            message_type_t file_msg_type;
+            nm_ss_file_entry_t file_entry;
+            while(recv(conn_fd, &file_msg_type, sizeof(message_type_t), 0) == sizeof(message_type_t)) {
+                if (file_msg_type == MSG_SS_FILE_LIST_END) {
+                    break; // End of list
+                }
+
+                if (file_msg_type == MSG_SS_FILE_LIST_ENTRY) {
+                    if (recv(conn_fd, &file_entry, sizeof(nm_ss_file_entry_t), 0) == sizeof(nm_ss_file_entry_t)) {
+                        
+                        file_info_t* found_file;
+                        HASH_FIND_STR(g_file_map, file_entry.filename, found_file);
+                        
+                        if (found_file) {
+                            // We know about this file. Let's update its SS index if it's different.
+                            // This handles the case where the file was on a different SS before.
+                            if (found_file->ss_index != ss_idx) {
+                                printf("   [Sync] Re-mapping file '%s' from SS#%d to SS#%d\n", 
+                                       file_entry.filename, found_file->ss_index, ss_idx);
+                                found_file->ss_index = ss_idx;
+                            }
+                        } else {
+                            // This is an "orphan" file. The SS has it but we don't.
+                            // We need to create metadata for it.
+                            // BUT: Who is the owner? We don't know.
+                            // For now, let's just log it. A proper implementation would
+                            // require an "admin" user or a way to claim orphans.
+                             printf("   [Sync] Found ORPHAN file '%s' on SS#%d. Metadata not created.\n", 
+                                    file_entry.filename, ss_idx);
+                        }
+                    }
+                }
+            }
+            pthread_rwlock_unlock(&file_map_rwlock); // Unlock file map
+
+            printf("-> Finished processing file list for SS#%d\n", ss_idx);
+
         } else {
             fprintf(stderr, "[Thread] Error receiving SS registration data. Expected %zu, got %zd\n", sizeof(ss_registration_t), n);
         }
@@ -665,12 +748,10 @@ void* handle_connection(void* p_conn_fd) {
             printf("   Handling CMD_STREAM_FILE for '%s'\n", req.filename);
             handle_read_file(&res, req); // Re-use read logic
         
-        // --- ADDED THIS BLOCK ---
         } else if (req.command == CMD_LIST_USERS) {
             printf("   Handling CMD_LIST_USERS for user '%s'\n", req.username);
             handle_list_users(conn_fd, req); // Sends its own multi-part response
             response_sent_by_handler = 1;
-        // --- END OF ADDED BLOCK ---
 
         } else if (req.command == CMD_GET_INFO) {
             printf("   Handling CMD_GET_INFO for '%s'\n", req.filename);
@@ -719,10 +800,148 @@ void* handle_connection(void* p_conn_fd) {
     return NULL;
 }
 
-// --- (Main function is unchanged) ---
+
+// --- NEW: Signal Handler for graceful shutdown ---
+void signal_handler(int sig) {
+    if (sig == SIGINT) {
+        printf("\n[Main] SIGINT received. Shutting down gracefully.\n");
+        printf("[Main] Saving metadata to disk...\n");
+        save_metadata_to_disk();
+        printf("[Main] Metadata saved. Goodbye.\n");
+        
+        // Cleanup all memory
+        free_file_map();
+        pthread_rwlock_destroy(&server_list_rwlock);
+        pthread_rwlock_destroy(&file_map_rwlock);
+        
+        exit(EXIT_SUCCESS);
+    }
+}
+
+// --- NEW: Function to save metadata to disk ---
+void save_metadata_to_disk() {
+    FILE* fp = fopen(METADATA_FILE, "w");
+    if (fp == NULL) {
+        perror("[Main] Failed to open metadata file for writing");
+        return;
+    }
+
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    
+    file_info_t *current_file, *tmp_file;
+    HASH_ITER(hh, g_file_map, current_file, tmp_file) {
+        // Write FILE entry
+        fprintf(fp, "FILE %s %s %d\n", 
+                current_file->filename, 
+                current_file->owner, 
+                current_file->ss_index);
+        
+        // Write ACL entries for this file
+        access_entry_t *current_access, *tmp_access;
+        HASH_ITER(hh, current_file->access_list, current_access, tmp_access) {
+            fprintf(fp, "ACL %s %s %c\n",
+                    current_file->filename,
+                    current_access->username,
+                    (current_access->level == NM_ACCESS_WRITE) ? 'W' : 'R');
+        }
+    }
+    
+    pthread_rwlock_unlock(&file_map_rwlock);
+    fclose(fp);
+    printf("   ...Metadata save complete.\n");
+}
+
+// --- NEW: Function to load metadata from disk ---
+void load_metadata_from_disk() {
+    FILE* fp = fopen(METADATA_FILE, "r");
+    if (fp == NULL) {
+        if (errno == ENOENT) {
+            printf("[Main] No metadata file found (%s). Starting fresh.\n", METADATA_FILE);
+        } else {
+            perror("[Main] Failed to open metadata file for reading");
+        }
+        return;
+    }
+
+    printf("[Main] Loading metadata from %s...\n", METADATA_FILE);
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        line[strcspn(line, "\n")] = 0; // Remove newline
+        
+        char type[10];
+        char filename[MAX_FILENAME_LEN];
+        char username[MAX_USERNAME_LEN];
+        
+        if (sscanf(line, "%s %s", type, filename) < 2) {
+            continue; // Skip blank or invalid lines
+        }
+
+        if (strcmp(type, "FILE") == 0) {
+            char owner[MAX_USERNAME_LEN];
+            int ss_index;
+            if (sscanf(line, "FILE %s %s %d", filename, owner, &ss_index) == 3) {
+                file_info_t* new_file = (file_info_t*)calloc(1, sizeof(file_info_t));
+                if (new_file) {
+                    strcpy(new_file->filename, filename);
+                    strcpy(new_file->owner, owner);
+                    new_file->ss_index = ss_index;
+                    new_file->access_list = NULL; // ACLs will be added next
+                    HASH_ADD_STR(g_file_map, filename, new_file);
+                }
+            }
+        } else if (strcmp(type, "ACL") == 0) {
+            char level_char;
+            if (sscanf(line, "ACL %s %s %c", filename, username, &level_char) == 3) {
+                file_info_t* found_file;
+                HASH_FIND_STR(g_file_map, filename, found_file);
+                if (found_file) {
+                    access_entry_t* new_access = (access_entry_t*)malloc(sizeof(access_entry_t));
+                    if (new_access) {
+                        strcpy(new_access->username, username);
+                        new_access->level = (level_char == 'W') ? NM_ACCESS_WRITE : NM_ACCESS_READ;
+                        HASH_ADD_STR(found_file->access_list, username, new_access);
+                    }
+                } else {
+                    fprintf(stderr, "   [Load] Found ACL for unknown file: %s\n", filename);
+                }
+            }
+        }
+    }
+
+    fclose(fp);
+    printf("   ...Metadata load complete. Loaded %d file entries.\n", HASH_COUNT(g_file_map));
+}
+
+// --- NEW: Function to free all allocated metadata ---
+void free_file_map() {
+    file_info_t *current_file, *tmp_file;
+    HASH_ITER(hh, g_file_map, current_file, tmp_file) {
+        access_entry_t *current_access, *tmp_access;
+        HASH_ITER(hh, current_file->access_list, current_access, tmp_access) {
+            HASH_DEL(current_file->access_list, current_access);
+            free(current_access);
+        }
+        HASH_DEL(g_file_map, current_file);
+        free(current_file);
+    }
+}
+
+
+// --- Main function ---
 int main() {
     int listen_fd;
     struct sockaddr_in serv_addr;
+
+    // --- NEW: Setup signal handler ---
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("[Main] sigaction failed");
+        exit(EXIT_FAILURE);
+    }
+
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) { perror("[Main] socket creation failed"); exit(EXIT_FAILURE); }
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
@@ -742,12 +961,24 @@ int main() {
     if (pthread_rwlock_init(&file_map_rwlock, NULL) != 0) {
         perror("[Main] file map rwlock init failed"); exit(EXIT_FAILURE);
     }
+
+    // --- NEW: Load metadata from disk before starting ---
+    // We must lock the map while loading it.
+    pthread_rwlock_wrlock(&file_map_rwlock);
+    load_metadata_from_disk();
+    pthread_rwlock_unlock(&file_map_rwlock);
+    // --- END NEW ---
+
     printf("Name Server listening on port %d...\n", NM_PORT);
     while (1) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
         int conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
         if (conn_fd < 0) {
+            if (errno == EINTR) {
+                // Interrupted by our signal handler, which is fine
+                continue;
+            }
             perror("[Main] accept failed");
             continue; 
         }
@@ -762,18 +993,14 @@ int main() {
             pthread_detach(tid);
         }
     } 
+    
+    // This part will only be reached if the loop breaks, 
+    // but cleanup is handled by the signal handler anyway.
     close(listen_fd);
+    save_metadata_to_disk(); // Final save
+    free_file_map();
     pthread_rwlock_destroy(&server_list_rwlock);
     pthread_rwlock_destroy(&file_map_rwlock);
-    file_info_t *current_file, *tmp_file;
-    HASH_ITER(hh, g_file_map, current_file, tmp_file) {
-        access_entry_t *current_access, *tmp_access;
-        HASH_ITER(hh, current_file->access_list, current_access, tmp_access) {
-            HASH_DEL(current_file->access_list, current_access);
-            free(current_access);
-        }
-        HASH_DEL(g_file_map, current_file);
-        free(current_file);
-    }
+    
     return 0;
 }

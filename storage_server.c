@@ -11,13 +11,15 @@
 #include "common.h"
 #include "uthash.h" 
 #include <errno.h> 
+// NEW INCLUDES
+#include <dirent.h>   // For directory scanning
 
 #define MY_IP "127.0.0.1"
 #define MY_CLIENT_PORT 9090 
 #define NM_IP "127.0.0.1"
 
 
-// --- (All WRITE helper functions and lock manager are unchanged) ---
+// --- (All helper functions and handle_client_connection remain UNCHANGED) ---
 typedef struct { char** sentences; int count; } file_in_memory_t;
 typedef struct { client_write_chunk_t* chunks; int count; int capacity; } edit_buffer_t;
 void free_file_in_memory(file_in_memory_t* file_mem) {
@@ -293,8 +295,6 @@ file_lock_t* get_lock_for_file(const char* filename) {
     pthread_mutex_unlock(&g_lock_map_mutex);
     return found_lock;
 }
-
-// --- Main Connection Handler ---
 void* handle_client_connection(void* p_conn_fd) {
     int conn_fd = *((int*)p_conn_fd);
     free(p_conn_fd);
@@ -615,7 +615,7 @@ void* handle_client_connection(void* p_conn_fd) {
 }
 
 
-// --- (Main function is unchanged) ---
+// --- Main function ---
 int main(int argc, char *argv[]) { 
     int sock_fd;
     struct sockaddr_in nm_addr;
@@ -648,6 +648,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     printf("Connected to Name Server!\n");
+
+    // --- STEP 1: Send registration message ---
     message_type_t msg_type = MSG_SS_REGISTER;
     if (send(sock_fd, &msg_type, sizeof(message_type_t), 0) < 0) {
         perror("[Main] send message type failed");
@@ -662,6 +664,36 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     printf("Successfully registered with Name Server (Port: %d).\n", my_client_port);
+
+    // --- STEP 2: Scan local directory and report files ---
+    printf("Scanning local directory for existing files...\n");
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(".");
+    if (d) {
+        while ((dir = readdir(d)) != NULL) {
+            // Check if it's a .txt file (or any other logic you want)
+            char* ext = strrchr(dir->d_name, '.');
+            if (ext && strcmp(ext, ".txt") == 0) {
+                printf("   -> Found file: %s\n", dir->d_name);
+                
+                msg_type = MSG_SS_FILE_LIST_ENTRY;
+                nm_ss_file_entry_t file_entry;
+                strncpy(file_entry.filename, dir->d_name, MAX_FILENAME_LEN - 1);
+
+                send(sock_fd, &msg_type, sizeof(message_type_t), 0);
+                send(sock_fd, &file_entry, sizeof(nm_ss_file_entry_t), 0);
+            }
+        }
+        closedir(d);
+    }
+    
+    // --- STEP 3: Send "End of List" message ---
+    printf("File scan complete. Sending end-of-list to NM.\n");
+    msg_type = MSG_SS_FILE_LIST_END;
+    send(sock_fd, &msg_type, sizeof(message_type_t), 0);
+
+    // We are done talking to the NM for registration.
     close(sock_fd); 
 
     if (pthread_mutex_init(&g_lock_map_mutex, NULL) != 0) {

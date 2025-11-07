@@ -21,6 +21,8 @@
 // --- Message Types (Client <-> NM Handshake) ---
 typedef enum {
     MSG_SS_REGISTER,
+    MSG_SS_FILE_LIST_ENTRY, // NEW: For SS to send a filename
+    MSG_SS_FILE_LIST_END,   // NEW: For SS to signal end of list
     MSG_CLIENT_NM_REQUEST 
 } message_type_t;
 
@@ -60,6 +62,11 @@ typedef struct {
     char ss_ip[MAX_IP_LEN];
     int client_port;
 } ss_registration_t;
+
+// NEW: Struct for SS to report existing files
+typedef struct {
+    char filename[MAX_FILENAME_LEN];
+} nm_ss_file_entry_t;
 
 
 // --- Structs for Client <-> NM Communication ---
