@@ -198,19 +198,20 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     unlink(temp_filename); // Delete the temporary file
     printf("   [EXEC] Finished and cleaned up %s\n", temp_filename);
 }
+// REPLACE the old handle_create_file in name_server.c with this:
 void handle_create_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_wrlock(&file_map_rwlock); 
     file_info_t* found_file;
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (found_file) {
         res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_FILE_ALREADY_EXISTS; // UPDATED
+        res->error_code = NFS_ERR_FILE_ALREADY_EXISTS; 
         strcpy(res->error_msg, "File already exists");
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
     }
     pthread_rwlock_rdlock(&server_list_rwlock); 
-    // --- UPDATED to find an *active* server ---
+    
     int active_server_count = 0;
     int first_active_server_idx = -1;
     for (int i = 0; i < server_count; i++) {
@@ -224,40 +225,77 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
 
     if (active_server_count == 0) {
         res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_SS_DOWN; // UPDATED
+        res->error_code = NFS_ERR_SS_DOWN; 
         strcpy(res->error_msg, "No Storage Servers available");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);  
         return;
     }
 
-    // Simple load balancing: assign to an active server based on hash
-    // (This part is complex, for now let's just pick one)
-    // A better way: (HASH_COUNT(g_file_map) % active_server_count) -> map to Nth active server
-    int assigned_ss_index = first_active_server_idx; // Simple assignment
+    int assigned_ss_index = first_active_server_idx; 
+    char ss_ip[MAX_IP_LEN];
+    int ss_port;
+    strcpy(ss_ip, server_list[assigned_ss_index].ip);
+    ss_port = server_list[assigned_ss_index].client_port;
+    
+    pthread_rwlock_unlock(&server_list_rwlock); 
 
-    // --- END UPDATE ---
+    // --- NEW LOGIC: NM acts as middleman ---
+    int ss_sock_fd = connect_to_server(ss_ip, ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "   [NM-Create] NM failed to connect to SS at %s:%d\n", ss_ip, ss_port);
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN;
+        strcpy(res->error_msg, "NM Error: Could not connect to Storage Server");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
 
+    // Forward the request to the SS
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    // Wait for ACK from SS
+    ss_response_t ss_res;
+    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("   [NM-Create] recv response from SS failed");
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_INTERNAL;
+        strcpy(res->error_msg, "NM Error: No ACK received from Storage Server");
+        close(ss_sock_fd);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    close(ss_sock_fd);
+
+    // If SS failed, forward the error to the client
+    if (ss_res.status == STATUS_ERROR) {
+        res->status = STATUS_ERROR;
+        res->error_code = ss_res.error_code;
+        strncpy(res->error_msg, ss_res.error_msg, MAX_ERROR_MSG_LEN - 1);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // --- SS was successful, NOW update NM metadata ---
     file_info_t* new_file = (file_info_t*)malloc(sizeof(file_info_t));
     if (!new_file) {
         res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_NM_INTERNAL; // UPDATED
+        res->error_code = NFS_ERR_NM_INTERNAL; 
         strcpy(res->error_msg, "Name Server out of memory");
-        pthread_rwlock_unlock(&server_list_rwlock); 
+        // ... (we should tell the SS to delete the file it just made, but that's complex)
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
     strcpy(new_file->filename, req.filename);
     strcpy(new_file->owner, req.username);
-    new_file->ss_index = assigned_ss_index; // Use the active index
+    new_file->ss_index = assigned_ss_index; 
     new_file->access_list = NULL; 
     access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
     if (!owner_access) {
          res->status = STATUS_ERROR;
-         res->error_code = NFS_ERR_NM_INTERNAL; // UPDATED
+         res->error_code = NFS_ERR_NM_INTERNAL; 
          strcpy(res->error_msg, "Name Server out of memory");
          free(new_file);
-         pthread_rwlock_unlock(&server_list_rwlock); 
          pthread_rwlock_unlock(&file_map_rwlock);
          return;
     }
@@ -265,12 +303,102 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     owner_access->level = NM_ACCESS_WRITE; 
     HASH_ADD_STR(new_file->access_list, username, owner_access);
     HASH_ADD_STR(g_file_map, filename, new_file);
+    
+    // Success! Send the final OK to the client
     res->status = STATUS_OK;
-    res->error_code = NFS_OK; // UPDATED
-    strcpy(res->ss_ip, server_list[new_file->ss_index].ip);
-    res->ss_port = server_list[new_file->ss_index].client_port;
+    res->error_code = NFS_OK; 
     printf("-> Metadata Added: File '%s' (Owner: %s) on SS#%d\n", req.filename, req.username, new_file->ss_index);
-    pthread_rwlock_unlock(&server_list_rwlock); 
+    pthread_rwlock_unlock(&file_map_rwlock);
+}
+
+// REPLACE the old handle_delete_file in name_server.c with this:
+void handle_delete_file(nm_response_t* res, client_request_t req) {
+    pthread_rwlock_wrlock(&file_map_rwlock);   
+    pthread_rwlock_rdlock(&server_list_rwlock); 
+    file_info_t* found_file;
+    HASH_FIND_STR(g_file_map, req.filename, found_file);
+    
+    if (!found_file) {
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; 
+        strcpy(res->error_msg, "File not found");
+        pthread_rwlock_unlock(&server_list_rwlock);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    if (strcmp(found_file->owner, req.username) != 0) {
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; 
+        strcpy(res->error_msg, "Permission denied (Only the owner can delete)");
+        pthread_rwlock_unlock(&server_list_rwlock);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    int ss_idx = found_file->ss_index;
+    if (ss_idx >= server_count || !server_list[ss_idx].active) { 
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN; 
+        strcpy(res->error_msg, "Storage Server for this file is offline, cannot delete");
+        pthread_rwlock_unlock(&server_list_rwlock);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    char ss_ip[MAX_IP_LEN];
+    int ss_port;
+    strcpy(ss_ip, server_list[ss_idx].ip);
+    ss_port = server_list[ss_idx].client_port;
+    
+    pthread_rwlock_unlock(&server_list_rwlock);
+
+    // --- NEW LOGIC: NM acts as middleman ---
+    int ss_sock_fd = connect_to_server(ss_ip, ss_port);
+    if (ss_sock_fd < 0) {
+        fprintf(stderr, "   [NM-Delete] NM failed to connect to SS at %s:%d\n", ss_ip, ss_port);
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN;
+        strcpy(res->error_msg, "NM Error: Could not connect to Storage Server");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // Forward the request to the SS
+    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+
+    // Wait for ACK from SS
+    ss_response_t ss_res;
+    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
+        perror("   [NM-Delete] recv response from SS failed");
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_INTERNAL;
+        strcpy(res->error_msg, "NM Error: No ACK received from Storage Server");
+        close(ss_sock_fd);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    close(ss_sock_fd);
+
+    // If SS failed, forward the error to the client
+    if (ss_res.status == STATUS_ERROR) {
+        res->status = STATUS_ERROR;
+        res->error_code = ss_res.error_code;
+        strncpy(res->error_msg, ss_res.error_msg, MAX_ERROR_MSG_LEN - 1);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // --- SS was successful, NOW update NM metadata ---
+    access_entry_t *current_access, *tmp_access;
+    HASH_ITER(hh, found_file->access_list, current_access, tmp_access) {
+        HASH_DEL(found_file->access_list, current_access);
+        free(current_access);
+    }
+    HASH_DEL(g_file_map, found_file);
+    free(found_file);
+    
+    res->status = STATUS_OK;
+    res->error_code = NFS_OK; 
+    printf("-> Metadata Deleted: File '%s' (User: %s). SS notified.\n", req.filename, req.username);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 void handle_view_files(int conn_fd, client_request_t req) {
@@ -478,51 +606,6 @@ void handle_rem_access(nm_response_t* res, client_request_t req) {
             strcpy(res->error_msg, "User does not have access to this file");
         }
     }
-    pthread_rwlock_unlock(&file_map_rwlock);
-}
-void handle_delete_file(nm_response_t* res, client_request_t req) {
-    pthread_rwlock_wrlock(&file_map_rwlock);   
-    pthread_rwlock_rdlock(&server_list_rwlock); 
-    file_info_t* found_file;
-    HASH_FIND_STR(g_file_map, req.filename, found_file);
-    if (!found_file) {
-        res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
-        strcpy(res->error_msg, "File not found");
-        pthread_rwlock_unlock(&server_list_rwlock);
-        pthread_rwlock_unlock(&file_map_rwlock);
-        return;
-    }
-    if (strcmp(found_file->owner, req.username) != 0) {
-        res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
-        strcpy(res->error_msg, "Permission denied (Only the owner can delete)");
-        pthread_rwlock_unlock(&server_list_rwlock);
-        pthread_rwlock_unlock(&file_map_rwlock);
-        return;
-    }
-    int ss_idx = found_file->ss_index;
-    if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
-        res->status = STATUS_ERROR;
-        res->error_code = NFS_ERR_SS_DOWN; // UPDATED
-        strcpy(res->error_msg, "Storage Server for this file is offline, cannot delete");
-        pthread_rwlock_unlock(&server_list_rwlock);
-        pthread_rwlock_unlock(&file_map_rwlock);
-        return;
-    }
-    res->status = STATUS_OK;
-    res->error_code = NFS_OK; // UPDATED
-    strcpy(res->ss_ip, server_list[ss_idx].ip);
-    res->ss_port = server_list[ss_idx].client_port;
-    access_entry_t *current_access, *tmp_access;
-    HASH_ITER(hh, found_file->access_list, current_access, tmp_access) {
-        HASH_DEL(found_file->access_list, current_access);
-        free(current_access);
-    }
-    HASH_DEL(g_file_map, found_file);
-    free(found_file);
-    printf("-> Metadata Deleted: File '%s' (User: %s). Notifying SS.\n", req.filename, req.username);
-    pthread_rwlock_unlock(&server_list_rwlock);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 void handle_get_info(int conn_fd, client_request_t req) {

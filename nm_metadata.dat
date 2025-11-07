@@ -5,3 +5,11 @@ FILE sarah.txt sarah 0
 ACL sarah.txt sarah W
 FILE test.txt tets 0
 ACL test.txt tets W
+FILE alice.txt alice 0
+ACL alice.txt alice W
+ACL alice.txt john W
+ACL alice.txt bob R
+FILE bob.txt bob 0
+ACL bob.txt bob W
+FILE HI alice 0
+ACL HI alice W

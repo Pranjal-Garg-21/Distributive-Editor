@@ -83,32 +83,72 @@ bool is_numeric(const char *s) {
 // (do_create, do_view, do_read, do_stream, do_write, do_addaccess, 
 //  do_remaccess, do_delete, do_undo, do_info, do_list, do_exec are all UNCHANGED)
 
+// REPLACE the old do_create in client.c with this:
 void do_create(const char* username, const char* filename) {
     client_request_t req = {0};
     req.command = CMD_CREATE_FILE;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
     int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
-    if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
     send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    // This is now the FINAL response from the NM, after it has talked to the SS
     nm_response_t nm_res;
     if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
-        perror("recv response header from NM failed"); close(nm_sock_fd); return;
+        perror("recv response header from NM failed"); 
+        close(nm_sock_fd); 
+        return;
     }
+    
     close(nm_sock_fd); 
-    if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
-    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
-    if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
-    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
-    ss_response_t ss_res;
-    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
-        perror("recv response from SS failed"); close(ss_sock_fd); return;
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+    } else {
+        printf("Success! File '%s' created.\n", req.filename);
     }
-    close(ss_sock_fd);
-    if (ss_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Storage Server]: %s\n", ss_res.error_msg); }
-    else { printf("Success! File '%s' created.\n", req.filename); }
+}
+
+// REPLACE the old do_delete in client.c with this:
+void do_delete(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_DELETE_FILE;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+    
+    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    // This is now the FINAL response from the NM
+    nm_response_t nm_res;
+    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
+        perror("recv response from NM failed"); 
+        close(nm_sock_fd); 
+        return;
+    }
+    
+    close(nm_sock_fd); 
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+    } else {
+        printf("File '%s' deleted successfully!\n", req.filename);
+    }
 }
 
 void do_view(const char* username, bool view_all, bool view_long) {
@@ -377,34 +417,6 @@ void do_remaccess(const char* username, const char* filename, const char* target
     close(nm_sock_fd);
     if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); }
     else { printf("Access removed successfully!\n"); }
-}
-
-void do_delete(const char* username, const char* filename) {
-    client_request_t req = {0};
-    req.command = CMD_DELETE_FILE;
-    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
-    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
-    if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
-    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
-    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
-    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
-    nm_response_t nm_res;
-    if (recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0) != sizeof(nm_response_t)) {
-        perror("recv response from NM failed"); close(nm_sock_fd); return;
-    }
-    close(nm_sock_fd); 
-    if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
-    int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
-    if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
-    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
-    ss_response_t ss_res;
-    if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
-        perror("recv response from SS failed"); close(ss_sock_fd); return;
-    }
-    close(ss_sock_fd);
-    if (ss_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Storage Server]: %s\n", ss_res.error_msg); }
-    else { printf("File '%s' deleted successfully!\n", req.filename); }
 }
 
 void do_undo(const char* username, const char* filename) {
