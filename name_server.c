@@ -92,16 +92,20 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
 
     if (!found_file) {
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res_header.error_msg, "File not found");
     } else if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res_header.error_msg, "Permission denied (Read access required)");
     } else if (found_file->ss_index >= server_count || !server_list[found_file->ss_index].active) { // UPDATED CHECK
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_SS_DOWN; // UPDATED
         strcpy(res_header.error_msg, "Storage Server for this file is offline");
     } else {
         // All good. Copy location and set status OK.
         res_header.status = STATUS_OK;
+        res_header.error_code = NFS_OK; // UPDATED
         strcpy(ss_ip, server_list[found_file->ss_index].ip);
         ss_port = server_list[found_file->ss_index].client_port;
     }
@@ -120,6 +124,7 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     if (ss_sock_fd < 0) {
         fprintf(stderr, "   [EXEC] NM failed to connect to SS at %s:%d\n", ss_ip, ss_port);
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_SS_DOWN; // UPDATED
         strcpy(res_header.error_msg, "NM Error: Could not connect to Storage Server");
         send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
         return;
@@ -135,6 +140,7 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     if (ss_res.status == STATUS_ERROR) {
         fprintf(stderr, "   [EXEC] SS returned error: %s\n", ss_res.error_msg);
         res_header.status = STATUS_ERROR;
+        res_header.error_code = ss_res.error_code; // UPDATED: Propagate error code
         strncpy(res_header.error_msg, ss_res.error_msg, MAX_ERROR_MSG_LEN -1);
         send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
         close(ss_sock_fd);
@@ -147,6 +153,7 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     if (temp_fd < 0) {
         perror("   [EXEC] mkstemp failed");
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_NM_INTERNAL; // UPDATED
         strcpy(res_header.error_msg, "NM Error: Could not create temp exec file");
         send(client_conn_fd, &res_header, sizeof(nm_response_t), 0);
         close(ss_sock_fd);
@@ -197,6 +204,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_ALREADY_EXISTS; // UPDATED
         strcpy(res->error_msg, "File already exists");
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
@@ -216,6 +224,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
 
     if (active_server_count == 0) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN; // UPDATED
         strcpy(res->error_msg, "No Storage Servers available");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);  
@@ -232,6 +241,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     file_info_t* new_file = (file_info_t*)malloc(sizeof(file_info_t));
     if (!new_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_NM_INTERNAL; // UPDATED
         strcpy(res->error_msg, "Name Server out of memory");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -244,6 +254,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
     if (!owner_access) {
          res->status = STATUS_ERROR;
+         res->error_code = NFS_ERR_NM_INTERNAL; // UPDATED
          strcpy(res->error_msg, "Name Server out of memory");
          free(new_file);
          pthread_rwlock_unlock(&server_list_rwlock); 
@@ -255,6 +266,7 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     HASH_ADD_STR(new_file->access_list, username, owner_access);
     HASH_ADD_STR(g_file_map, filename, new_file);
     res->status = STATUS_OK;
+    res->error_code = NFS_OK; // UPDATED
     strcpy(res->ss_ip, server_list[new_file->ss_index].ip);
     res->ss_port = server_list[new_file->ss_index].client_port;
     printf("-> Metadata Added: File '%s' (Owner: %s) on SS#%d\n", req.filename, req.username, new_file->ss_index);
@@ -274,6 +286,7 @@ void handle_view_files(int conn_fd, client_request_t req) {
         }
     }
     res_header.status = STATUS_OK;
+    res_header.error_code = NFS_OK; // UPDATED
     res_header.file_count = files_to_send_count;
     if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
         perror("send VIEW response header failed");
@@ -312,6 +325,7 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (!found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res->error_msg, "File not found");
         pthread_rwlock_unlock(&server_list_rwlock);
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -319,6 +333,7 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     }
     if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res->error_msg, "Permission denied");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock); 
@@ -327,12 +342,14 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN; // UPDATED
         strcpy(res->error_msg, "Storage Server for this file is currently offline");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock); 
         return;
     }
     res->status = STATUS_OK;
+    res->error_code = NFS_OK; // UPDATED
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     printf("-> Read Access Granted: File '%s' (User: %s) on SS#%d\n", req.filename, req.username, ss_idx);
@@ -346,6 +363,7 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (!found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res->error_msg, "File not found");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -353,6 +371,7 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
     }
     if (!check_permission(found_file, req.username, NM_ACCESS_WRITE)) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res->error_msg, "Permission denied (Write access required)");
         pthread_rwlock_unlock(&server_list_rwlock); 
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -361,12 +380,14 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
          res->status = STATUS_ERROR;
+         res->error_code = NFS_ERR_SS_DOWN; // UPDATED
          strcpy(res->error_msg, "Storage Server for this file is currently offline");
          pthread_rwlock_unlock(&server_list_rwlock); 
          pthread_rwlock_unlock(&file_map_rwlock);
          return;
     }
     res->status = STATUS_OK;
+    res->error_code = NFS_OK; // UPDATED
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     printf("-> Write Access Granted: File '%s' (User: %s) on SS#%d\n", req.filename, req.username, ss_idx);
@@ -379,28 +400,47 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (!found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; 
         strcpy(res->error_msg, "File not found");
     } else if (strcmp(found_file->owner, req.username) != 0) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; 
         strcpy(res->error_msg, "Permission denied (Only the owner can add access)");
     } else {
         access_entry_t* target_access;
         HASH_FIND_STR(found_file->access_list, req.target_username, target_access);
+        
         nm_access_level_t new_level = (req.access_level == ACCESS_WRITE) ? NM_ACCESS_WRITE : NM_ACCESS_READ;
+
         if (target_access) {
-            target_access->level = new_level;
-            res->status = STATUS_OK;
-            printf("   Access Updated: User '%s' set to %s for file '%s'\n", req.target_username, (new_level == NM_ACCESS_WRITE) ? "WRITE" : "READ", req.filename);
+            // --- THIS IS THE FIX ---
+            // Only upgrade permissions. Never downgrade.
+            if (target_access->level == NM_ACCESS_WRITE && new_level == NM_ACCESS_READ) {
+                // User already has WRITE, which includes READ. Do nothing.
+                res->status = STATUS_OK;
+                res->error_code = NFS_OK;
+                printf("   Access Updated: User '%s' already has WRITE access for '%s'. No change needed.\n", req.target_username, req.filename);
+            } else {
+                // Either upgrading R -> W, or setting W -> W (no change)
+                target_access->level = new_level;
+                res->status = STATUS_OK;
+                res->error_code = NFS_OK;
+                printf("   Access Updated: User '%s' set to %s for file '%s'\n", req.target_username, (new_level == NM_ACCESS_WRITE) ? "WRITE" : "READ", req.filename);
+            }
+            // --- END FIX ---
         } else {
+            // User is not in the list, so create a new entry
             access_entry_t* new_access = (access_entry_t*)malloc(sizeof(access_entry_t));
             if (!new_access) {
                 res->status = STATUS_ERROR;
+                res->error_code = NFS_ERR_NM_INTERNAL; 
                 strcpy(res->error_msg, "Name Server out of memory");
             } else {
                 strcpy(new_access->username, req.target_username);
                 new_access->level = new_level;
                 HASH_ADD_STR(found_file->access_list, username, new_access);
                 res->status = STATUS_OK;
+                res->error_code = NFS_OK; 
                 printf("   Access Added: User '%s' given %s for file '%s'\n", req.target_username, (new_level == NM_ACCESS_WRITE) ? "WRITE" : "READ", req.filename);
             }
         }
@@ -413,12 +453,15 @@ void handle_rem_access(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (!found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res->error_msg, "File not found");
     } else if (strcmp(found_file->owner, req.username) != 0) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res->error_msg, "Permission denied (Only the owner can remove access)");
     } else if (strcmp(found_file->owner, req.target_username) == 0) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_INVALID_INPUT; // UPDATED
         strcpy(res->error_msg, "Cannot remove the owner's access");
     } else {
         access_entry_t* target_access;
@@ -427,9 +470,11 @@ void handle_rem_access(nm_response_t* res, client_request_t req) {
             HASH_DEL(found_file->access_list, target_access);
             free(target_access);
             res->status = STATUS_OK;
+            res->error_code = NFS_OK; // UPDATED
             printf("   Access Removed: User '%s' from file '%s'\n", req.target_username, req.filename);
         } else {
             res->status = STATUS_ERROR;
+            res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
             strcpy(res->error_msg, "User does not have access to this file");
         }
     }
@@ -442,6 +487,7 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     HASH_FIND_STR(g_file_map, req.filename, found_file);
     if (!found_file) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res->error_msg, "File not found");
         pthread_rwlock_unlock(&server_list_rwlock);
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -449,6 +495,7 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     }
     if (strcmp(found_file->owner, req.username) != 0) {
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res->error_msg, "Permission denied (Only the owner can delete)");
         pthread_rwlock_unlock(&server_list_rwlock);
         pthread_rwlock_unlock(&file_map_rwlock);
@@ -457,12 +504,14 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     int ss_idx = found_file->ss_index;
     if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
         res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_SS_DOWN; // UPDATED
         strcpy(res->error_msg, "Storage Server for this file is offline, cannot delete");
         pthread_rwlock_unlock(&server_list_rwlock);
         pthread_rwlock_unlock(&file_map_rwlock);
         return;
     }
     res->status = STATUS_OK;
+    res->error_code = NFS_OK; // UPDATED
     strcpy(res->ss_ip, server_list[ss_idx].ip);
     res->ss_port = server_list[ss_idx].client_port;
     access_entry_t *current_access, *tmp_access;
@@ -487,18 +536,22 @@ void handle_get_info(int conn_fd, client_request_t req) {
 
     if (!found_file) {
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
         strcpy(res_header.error_msg, "File not found");
     } else if (!check_permission(found_file, req.username, NM_ACCESS_READ)) {
         res_header.status = STATUS_ERROR;
+        res_header.error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
         strcpy(res_header.error_msg, "Permission denied");
     } else {
         int ss_idx = found_file->ss_index;
         if (ss_idx >= server_count || !server_list[ss_idx].active) { // UPDATED CHECK
             res_header.status = STATUS_ERROR;
+            res_header.error_code = NFS_ERR_SS_DOWN; // UPDATED
             strcpy(res_header.error_msg, "Storage Server for this file is currently offline");
         } else {
             // All checks passed, send header
             res_header.status = STATUS_OK;
+            res_header.error_code = NFS_OK; // UPDATED
             strcpy(res_header.owner, found_file->owner);
             strcpy(res_header.ss_ip, server_list[ss_idx].ip);
             res_header.ss_port = server_list[ss_idx].client_port;
@@ -595,6 +648,7 @@ void handle_list_users(int conn_fd, client_request_t req) {
 
     // --- Send response back to client ---
     res_header.status = STATUS_OK;
+    res_header.error_code = NFS_OK; // UPDATED
     res_header.file_count = user_count; // Re-using file_count field
 
     if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
@@ -786,6 +840,7 @@ void* handle_connection(void* p_conn_fd) {
         }
         else {
             res.status = STATUS_ERROR;
+            res.error_code = NFS_ERR_INVALID_INPUT; // UPDATED
             strcpy(res.error_msg, "Unknown command");
         }
         

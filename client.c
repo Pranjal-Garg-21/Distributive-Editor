@@ -80,7 +80,8 @@ bool is_numeric(const char *s) {
 // --- Command Handler Functions ---
 // =================================================================
 
-// (do_create, do_view, do_read, do_stream, do_write, do_addaccess, do_remaccess, do_delete, do_undo are all unchanged)
+// (do_create, do_view, do_read, do_stream, do_write, do_addaccess, 
+//  do_remaccess, do_delete, do_undo, do_info, do_list, do_exec are all UNCHANGED)
 
 void do_create(const char* username, const char* filename) {
     client_request_t req = {0};
@@ -662,48 +663,79 @@ int main(int argc, char *argv[]) {
             print_help();
         } else if (strcmp(command, "CREATE") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) fprintf(stderr, "Usage: CREATE <filename>\n");
-            else do_create(username, filename);
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: CREATE <filename>\n");
+            } else {
+                do_create(username, filename);
+            }
         
         } else if (strcmp(command, "VIEW") == 0) {
             bool view_all = false;
             bool view_long = false;
             char* flag = strtok(NULL, " \n");
+            bool error = false;
             while (flag != NULL) {
                 if (strcmp(flag, "-a") == 0) view_all = true;
                 else if (strcmp(flag, "-l") == 0) view_long = true;
                 else if (strcmp(flag, "-al") == 0 || strcmp(flag, "-la") == 0) {
                     view_all = true; view_long = true;
+                } else {
+                    // --- VALIDATION: Unknown flag ---
+                    fprintf(stderr, "Error: Unknown flag '%s' for VIEW\n", flag);
+                    error = true;
+                    break;
                 }
                 flag = strtok(NULL, " \n");
             }
-            do_view(username, view_all, view_long);
+            if (!error) {
+                do_view(username, view_all, view_long);
+            }
 
         } else if (strcmp(command, "READ") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) fprintf(stderr, "Usage: READ <filename>\n");
-            else do_read(username, filename);
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: READ <filename>\n");
+            } else {
+                do_read(username, filename);
+            }
         
         } else if (strcmp(command, "STREAM") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) fprintf(stderr, "Usage: STREAM <filename>\n");
-            else do_stream(username, filename);
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: STREAM <filename>\n");
+            } else {
+                do_stream(username, filename);
+            }
         
         } else if (strcmp(command, "INFO") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) fprintf(stderr, "Usage: INFO <filename>\n");
-            else do_info(username, filename);
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: INFO <filename>\n");
+            } else {
+                do_info(username, filename);
+            }
         
-        // --- ADDED THIS BLOCK ---
         } else if (strcmp(command, "LIST") == 0) {
-            do_list(username);
-        // --- END OF ADDED BLOCK ---
+            // --- VALIDATION: Must have 0 args ---
+            if (strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: LIST\n");
+            } else {
+                do_list(username);
+            }
 
         } else if (strcmp(command, "WRITE") == 0) { 
             char* filename = strtok(NULL, " \n");
             char* sentence_str = strtok(NULL, " \n");
-            if (filename == NULL || sentence_str == NULL) {
+            // --- VALIDATION: Must have 2 args, and only 2 args ---
+            if (filename == NULL || sentence_str == NULL || strtok(NULL, " \n") != NULL) {
                 fprintf(stderr, "Usage: WRITE <filename> <sentence_number>\n");
+            // --- VALIDATION: Arg 2 must be a number ---
+            } else if (!is_numeric(sentence_str)) {
+                fprintf(stderr, "Error: <sentence_number> must be a non-negative number.\n");
             } else {
                 do_write(username, filename, atoi(sentence_str));
             }
@@ -712,13 +744,17 @@ int main(int argc, char *argv[]) {
             char* level_str = strtok(NULL, " \n");
             char* filename = strtok(NULL, " \n");
             char* target_user = strtok(NULL, " \n");
-            if (level_str == NULL || filename == NULL || target_user == NULL) {
+            // --- VALIDATION: Must have 3 args, and only 3 args ---
+            if (level_str == NULL || filename == NULL || target_user == NULL || strtok(NULL, " \n") != NULL) {
                 fprintf(stderr, "Usage: ADDACCESS <R|W> <filename> <username>\n");
             } else {
                 access_level_t level;
-                if (strcmp(level_str, "R") == 0) level = ACCESS_READ;
-                else if (strcmp(level_str, "W") == 0) level = ACCESS_WRITE;
-                else {
+                // --- VALIDATION: Arg 1 must be R or W ---
+                if (strcmp(level_str, "R") == 0) {
+                    level = ACCESS_READ;
+                } else if (strcmp(level_str, "W") == 0) {
+                    level = ACCESS_WRITE;
+                } else {
                     fprintf(stderr, "Error: Access level must be 'R' or 'W'\n");
                     continue;
                 }
@@ -728,7 +764,8 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(command, "REMACCESS") == 0) { 
             char* filename = strtok(NULL, " \n");
             char* target_user = strtok(NULL, " \n");
-            if (filename == NULL || target_user == NULL) {
+            // --- VALIDATION: Must have 2 args, and only 2 args ---
+            if (filename == NULL || target_user == NULL || strtok(NULL, " \n") != NULL) {
                 fprintf(stderr, "Usage: REMACCESS <filename> <username>\n");
             } else {
                 do_remaccess(username, filename, target_user);
@@ -736,7 +773,8 @@ int main(int argc, char *argv[]) {
 
         } else if (strcmp(command, "DELETE") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) {
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
                 fprintf(stderr, "Usage: DELETE <filename>\n");
             } else {
                 do_delete(username, filename);
@@ -744,15 +782,20 @@ int main(int argc, char *argv[]) {
         
         } else if (strcmp(command, "UNDO") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) {
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
                 fprintf(stderr, "Usage: UNDO <filename>\n");
             } else {
                 do_undo(username, filename);
             }
         } else if (strcmp(command, "EXEC") == 0) {
             char* filename = strtok(NULL, " \n");
-            if (filename == NULL) fprintf(stderr, "Usage: EXEC <filename>\n");
-            else do_exec(username, filename);
+            // --- VALIDATION: Must have 1 arg, and only 1 arg ---
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: EXEC <filename>\n");
+            } else {
+                do_exec(username, filename);
+            }
         }
         else {
             fprintf(stderr, "Unknown command: '%s'. Type 'help' for commands.\n", command);
@@ -762,4 +805,3 @@ int main(int argc, char *argv[]) {
     printf("Goodbye, %s!\n", username);
     return 0;
 }
-

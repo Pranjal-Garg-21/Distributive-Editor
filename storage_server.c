@@ -317,6 +317,7 @@ void* handle_client_connection(void* p_conn_fd) {
     if (file_lock == NULL) {
         ss_response_t res = {0};
         res.status = STATUS_ERROR;
+        res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
         strcpy(res.error_msg, "Storage Server internal error (Lock Manager). Try again.");
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
             perror("   [SS-Thread]: send lock error response failed");
@@ -334,10 +335,12 @@ void* handle_client_connection(void* p_conn_fd) {
             if (fp == NULL) {
                 perror("   [SS-Thread]: fopen failed");
                 res.status = STATUS_ERROR;
+                res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                 strcpy(res.error_msg, "File creation failed on Storage Server");
             } else {
                 fclose(fp);
                 res.status = STATUS_OK;
+                res.error_code = NFS_OK; // UPDATED
                 printf("   [SS-Thread]: Successfully created file '%s'\n", req.filename);
             }
             pthread_rwlock_unlock(&file_lock->file_rwlock); 
@@ -356,9 +359,11 @@ void* handle_client_connection(void* p_conn_fd) {
             if (stat(req.filename, &file_stat) < 0) {
                 perror("   [SS-Thread]: stat failed");
                 res.status = STATUS_ERROR;
+                res.error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
                 strcpy(res.error_msg, "File not found on Storage Server");
             } else {
                 res.status = STATUS_OK;
+                res.error_code = NFS_OK; // UPDATED
                 // --- UPDATED BLOCK ---
                 res.stats.char_count = file_stat.st_size;
                 res.stats.last_modified = file_stat.st_mtime; // Time of last data modification
@@ -384,12 +389,14 @@ void* handle_client_connection(void* p_conn_fd) {
             if (fp == NULL) {
                 perror("   [SS-Thread]: fopen failed for read");
                 header_res.status = STATUS_ERROR;
+                header_res.error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
                 strcpy(header_res.error_msg, "File not found or unreadable on Storage Server");
                 if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
                     perror("   [SS-Thread]: send read error response failed");
                 }
             } else {
                 header_res.status = STATUS_OK;
+                header_res.error_code = NFS_OK; // UPDATED
                 if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
                     perror("   [SS-Thread]: send read OK response failed");
                     fclose(fp);
@@ -419,8 +426,8 @@ void* handle_client_connection(void* p_conn_fd) {
         } else if (req.command == CMD_WRITE_FILE) {
             printf("   [SS-Thread]: Handling CMD_WRITE_FILE for '%s'\n", req.filename);
             
-            ss_response_t ready_res = { .status = STATUS_OK };
-            ss_write_response_t final_res = { .status = STATUS_OK };
+            ss_response_t ready_res = { .status = STATUS_OK, .error_code = NFS_OK }; // UPDATED
+            ss_write_response_t final_res = { .status = STATUS_OK, .error_code = NFS_OK }; // UPDATED
             
             int locked_sentence_index = -1;
             int final_sentence_count = 0;
@@ -447,6 +454,7 @@ void* handle_client_connection(void* p_conn_fd) {
                             printf("   [SS-Thread]: Validation failed. Index %d out of bounds (0-%d).\n", 
                                    chunk.sentence_index, temp_file.count);
                             final_res.status = STATUS_ERROR;
+                            final_res.error_code = NFS_ERR_INDEX_OUT_OF_BOUNDS; // UPDATED
                             sprintf(final_res.error_msg, "Sentence index %d is out of bounds (valid: 0-%d)", 
                                     chunk.sentence_index, temp_file.count);
                             
@@ -464,6 +472,7 @@ void* handle_client_connection(void* p_conn_fd) {
 
                     if (chunk.sentence_index != locked_sentence_index) {
                         final_res.status = STATUS_ERROR;
+                        final_res.error_code = NFS_ERR_PERMISSION_DENIED; // UPDATED
                         strcpy(final_res.error_msg, "Permission denied: Can only edit one sentence per session.");
                         break;
                     }
@@ -474,6 +483,7 @@ void* handle_client_connection(void* p_conn_fd) {
                         if (!new_buf) {
                             perror("   [SS-Thread]: realloc chunk buffer failed");
                             final_res.status = STATUS_ERROR;
+                            final_res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                             strcpy(final_res.error_msg, "Server out of memory");
                             break;
                         }
@@ -496,6 +506,7 @@ void* handle_client_connection(void* p_conn_fd) {
                     if (first_index < 0 || first_index > file_mem.count) {
                         re_validation_passed = false;
                         final_res.status = STATUS_ERROR;
+                        final_res.error_code = NFS_ERR_FILE_LOCKED; // UPDATED (File changed by other user)
                         sprintf(final_res.error_msg, "Write failed: File was modified by another user (index %d no longer valid)", first_index);
                     }
                 }
@@ -506,6 +517,7 @@ void* handle_client_connection(void* p_conn_fd) {
                         client_write_chunk_t* c = &buffer.chunks[i];
                         if (!edit_sentence(&file_mem, c->sentence_index, c->word_index, c->content)) {
                             final_res.status = STATUS_ERROR; 
+                            final_res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                             strcpy(final_res.error_msg, "Internal server error during edit");
                             break; 
                         }
@@ -514,6 +526,7 @@ void* handle_client_connection(void* p_conn_fd) {
                     if (final_res.status == STATUS_OK) {
                         if (!save_memory_to_file(req.filename, &file_mem)) {
                             final_res.status = STATUS_ERROR;
+                            final_res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                             strcpy(final_res.error_msg, "Failed to save file to disk");
                         }
                     }
@@ -549,11 +562,19 @@ void* handle_client_connection(void* p_conn_fd) {
 
             if (remove(req.filename) == 0) {
                 res.status = STATUS_OK;
+                res.error_code = NFS_OK; // UPDATED
                 printf("   [SS-Thread]: Successfully deleted file '%s'\n", req.filename);
             } else {
                 perror("   [SS-Thread]: remove failed");
                 res.status = STATUS_ERROR;
-                strcpy(res.error_msg, "File not found or delete failed on Storage Server");
+                // UPDATED: Check if file not found vs other error
+                if (errno == ENOENT) {
+                    res.error_code = NFS_ERR_FILE_NOT_FOUND;
+                    strcpy(res.error_msg, "File not found on Storage Server");
+                } else {
+                    res.error_code = NFS_ERR_SS_INTERNAL;
+                    strcpy(res.error_msg, "File delete failed on Storage Server");
+                }
             }
             pthread_rwlock_unlock(&file_lock->file_rwlock); 
 
@@ -574,19 +595,23 @@ void* handle_client_connection(void* p_conn_fd) {
             struct stat buffer;
             if (stat(backup_filename, &buffer) != 0) {
                 if (errno == ENOENT) {
+                    res.error_code = NFS_ERR_FILE_NOT_FOUND; // UPDATED
                     strcpy(res.error_msg, "No undo history found for this file.");
                 } else {
                     perror("   [SS-Thread]: stat failed on .bak");
+                    res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                     strcpy(res.error_msg, "Error checking undo history.");
                 }
                 res.status = STATUS_ERROR;
             } else {
                 if (rename(backup_filename, req.filename) == 0) {
                     res.status = STATUS_OK;
+                    res.error_code = NFS_OK; // UPDATED
                     printf("   [SS-Thread]: File '%s' reverted successfully.\n", req.filename);
                 } else {
                     perror("   [SS-Thread]: rename failed");
                     res.status = STATUS_ERROR;
+                    res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                     strcpy(res.error_msg, "Undo failed on Storage Server.");
                 }
             }
@@ -603,6 +628,7 @@ void* handle_client_connection(void* p_conn_fd) {
     if (!response_sent) {
         ss_response_t res = {0};
         res.status = STATUS_ERROR;
+        res.error_code = NFS_ERR_INVALID_INPUT; // UPDATED
         strcpy(res.error_msg, "Unknown command received by SS");
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
             perror("   [SS-Thread]: send error response failed");

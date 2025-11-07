@@ -21,8 +21,8 @@
 // --- Message Types (Client <-> NM Handshake) ---
 typedef enum {
     MSG_SS_REGISTER,
-    MSG_SS_FILE_LIST_ENTRY, // NEW: For SS to send a filename
-    MSG_SS_FILE_LIST_END,   // NEW: For SS to signal end of list
+    MSG_SS_FILE_LIST_ENTRY, 
+    MSG_SS_FILE_LIST_END,   
     MSG_CLIENT_NM_REQUEST 
 } message_type_t;
 
@@ -31,6 +31,26 @@ typedef enum {
     STATUS_OK,
     STATUS_ERROR
 } response_status_t;
+
+// --- NEW: Universal Error Codes (as required by spec) ---
+typedef enum {
+    NFS_OK = 0,                 // Success
+    NFS_ERR_FILE_NOT_FOUND,     // File not found
+    NFS_ERR_FILE_ALREADY_EXISTS,// File already exists
+    NFS_ERR_PERMISSION_DENIED,  // General permission error
+    NFS_ERR_NOT_OWNER,          // Specific "not owner" error
+    NFS_ERR_FILE_LOCKED,        // Resource contention / sentence locked
+    NFS_ERR_INVALID_INPUT,      // Bad arguments from client
+    NFS_ERR_INVALID_FILENAME,   // e.g., contains '/' or '..'
+    NFS_ERR_INDEX_OUT_OF_BOUNDS,// For WRITE command
+    NFS_ERR_SS_DOWN,            // Storage Server is offline
+    NFS_ERR_NM_DOWN,            // (Client-side) Name Server is offline
+    NFS_ERR_SS_INTERNAL,        // Storage Server had an internal error (malloc, fopen)
+    NFS_ERR_NM_INTERNAL,        // Name Server had an internal error (malloc)
+    NFS_ERR_NET_SEND_FAILED,    // Network send error
+    NFS_ERR_NET_RECV_FAILED,    // Network receive error
+    NFS_ERR_UNKNOWN             // Catch-all
+} nfs_error_code_t;
 
 
 // --- Command Enums ---
@@ -63,7 +83,6 @@ typedef struct {
     int client_port;
 } ss_registration_t;
 
-// NEW: Struct for SS to report existing files
 typedef struct {
     char filename[MAX_FILENAME_LEN];
 } nm_ss_file_entry_t;
@@ -87,10 +106,11 @@ typedef struct {
 // NM sends this back to Client (Generic)
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN]; 
     char ss_ip[MAX_IP_LEN];
     int ss_port;
-    int file_count; // Re-used for LIST to send user_count
+    int file_count; 
 } nm_response_t;
 
 // NM sends this for each file in a VIEW list
@@ -106,6 +126,7 @@ typedef struct {
 // NM -> Client response for INFO (Header)
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN];
     
     char owner[MAX_USERNAME_LEN];
@@ -120,19 +141,18 @@ typedef struct {
     access_level_t level;
 } nm_acl_entry_t;
 
-// --- NEW: Structs for LIST command ---
+// --- Structs for LIST command ---
 
 // NM -> Client, sent file_count (as user_count) times after header
 typedef struct {
     char username[MAX_USERNAME_LEN];
 } nm_user_entry_t;
 
-// --- End LIST Structs ---
-
 
 // SS -> Client (for CREATE/DELETE/Ready-to-Write)
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN]; 
 } ss_response_t;
 
@@ -143,34 +163,37 @@ typedef struct {
     char content[FILE_BUFFER_SIZE];
     bool is_etirw;
 } client_write_chunk_t;
+
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN];
     int new_active_sentence_index;  
     int new_total_sentence_count; 
 } ss_write_chunk_response_t;
+
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN]; 
     int updated_sentence_count; 
 } ss_write_response_t;
 
 
 // --- Structs for READ/STATS ---
-
-// UPDATED: Added created/accessed times
 typedef struct {
     long char_count;
     long word_count;
     long line_count;
     time_t last_modified;
-    time_t last_accessed; // NEW
-    time_t time_created;  // NEW (st_ctime)
+    time_t last_accessed; 
+    time_t time_created;  
 } ss_file_stats_t;
 
 // SS -> Client (for GET_STATS, now with more info)
 typedef struct {
     response_status_t status;
+    nfs_error_code_t error_code; // NEW
     char error_msg[MAX_ERROR_MSG_LEN];
     ss_file_stats_t stats; 
 } ss_stats_response_t;
