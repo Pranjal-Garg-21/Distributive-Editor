@@ -16,29 +16,6 @@
 #define METADATA_FILE "nm_metadata.dat"
 #define MAX_CACHE_SIZE 128
 
-// --- NEW CACHE DEFINITIONS ---
-
-// An entry in our LRU cache
-typedef struct cache_entry_s {
-    char filename[MAX_FILENAME_LEN]; // The key
-    file_info_t* file_info;          // The value (pointer to main map's data)
-    
-    // Doubly-linked list pointers for LRU
-    struct cache_entry_s* prev;
-    struct cache_entry_s* next;
-    
-    // Hash handle for O(1) lookup
-    UT_hash_handle hh;
-} cache_entry_t;
-
-// Cache globals
-static cache_entry_t* g_file_cache = NULL;      // Hash map head
-static cache_entry_t* g_cache_head = NULL;      // Most-recently-used
-static cache_entry_t* g_cache_tail = NULL;      // Least-recently-used
-static int g_cache_size = 0;
-static pthread_mutex_t g_cache_mutex;          // Mutex to protect all cache operations
-
-// --- END CACHE DEFINITIONS ---
 
 // --- (All structs, globals, and helpers up to handle_delete_file are unchanged) ---
 #define MAX_STORAGE_SERVERS 10
@@ -65,6 +42,31 @@ void free_file_map();
 static file_info_t* cache_get(const char* filename);
 static void cache_put(file_info_t* file_info);
 static void cache_invalidate(const char* filename);
+
+
+// --- NEW CACHE DEFINITIONS ---
+
+// An entry in our LRU cache
+typedef struct cache_entry_s {
+    char filename[MAX_FILENAME_LEN]; // The key
+    file_info_t* file_info;          // The value (pointer to main map's data)
+    
+    // Doubly-linked list pointers for LRU
+    struct cache_entry_s* prev;
+    struct cache_entry_s* next;
+    
+    // Hash handle for O(1) lookup
+    UT_hash_handle hh;
+} cache_entry_t;
+
+// Cache globals
+static cache_entry_t* g_file_cache = NULL;      // Hash map head
+static cache_entry_t* g_cache_head = NULL;      // Most-recently-used
+static cache_entry_t* g_cache_tail = NULL;      // Least-recently-used
+static int g_cache_size = 0;
+static pthread_mutex_t g_cache_mutex;          // Mutex to protect all cache operations
+
+// --- END CACHE DEFINITIONS ---
 
 
 /**
@@ -285,7 +287,12 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         res->status = STATUS_ERROR;
         res->error_code = NFS_ERR_SS_DOWN;
         strcpy(res->error_msg, "NM Error: Could not connect to Storage Server");
-        // --- TODO: Mark SS as inactive (see issue #3) ---
+        printf("   [NM] Marking SS#%d as INACTIVE due to connection failure.\n", assigned_ss_index);
+        pthread_rwlock_wrlock(&server_list_rwlock);
+        if (assigned_ss_index >= 0 && assigned_ss_index < server_count) { // Safety check
+             server_list[assigned_ss_index].active = false;
+        }
+        pthread_rwlock_unlock(&server_list_rwlock);
         return;
     }
 
@@ -318,7 +325,12 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         res->error_code = NFS_ERR_FILE_ALREADY_EXISTS; 
         strcpy(res->error_msg, "File created by another user during operation");
         pthread_rwlock_unlock(&file_map_rwlock);
-        // TODO: Tell SS to delete the file it just made
+        printf("   [NM] Marking SS#%d as INACTIVE due to connection failure.\n", assigned_ss_index);
+        pthread_rwlock_wrlock(&server_list_rwlock);
+        if (assigned_ss_index >= 0 && assigned_ss_index < server_count) { // Safety check
+            server_list[assigned_ss_index].active = false;
+        }
+        pthread_rwlock_unlock(&server_list_rwlock);
         return;
     }
 
@@ -414,7 +426,12 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
         res->status = STATUS_ERROR;
         res->error_code = NFS_ERR_SS_DOWN;
         strcpy(res->error_msg, "NM Error: Could not connect to Storage Server");
-        // --- TODO: Mark SS as inactive (see issue #3) ---
+        printf("   [NM] Marking SS#%d as INACTIVE due to connection failure.\n", ss_idx);
+        pthread_rwlock_wrlock(&server_list_rwlock);
+        if (ss_idx >= 0 && ss_idx < server_count) { // Safety check
+            server_list[ss_idx].active = false;
+        }
+        pthread_rwlock_unlock(&server_list_rwlock);
         return;
     }
 
