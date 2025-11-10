@@ -13,6 +13,9 @@
 #include <errno.h> 
 // NEW INCLUDES
 #include <dirent.h>   // For directory scanning
+#include "logger.h"   // <-- ADDED THIS
+#include <stdarg.h>   // <-- ADDED THIS
+
 
 #define MY_IP "127.0.0.1"
 #define MY_CLIENT_PORT 9090 
@@ -295,11 +298,18 @@ file_lock_t* get_lock_for_file(const char* filename) {
     pthread_mutex_unlock(&g_lock_map_mutex);
     return found_lock;
 }
-void* handle_client_connection(void* p_conn_fd) {
-    int conn_fd = *((int*)p_conn_fd);
-    free(p_conn_fd);
+void* handle_client_connection(void* p_arg) {
+    // --- NEW: Unpack thread arguments ---
+    thread_arg_t* arg = (thread_arg_t*)p_arg;
+    int conn_fd = arg->conn_fd;
+    char ip_str[INET_ADDRSTRLEN];
+    strcpy(ip_str, arg->ip_str); // Copy to stack
+    int port = arg->port;
+    free(arg); // Free the heap-allocated struct
+    // --- END NEW ---
 
     printf("   [SS-Thread]: Got a connection! (conn_fd: %d)\n", conn_fd);
+    server_log(LOG_INFO, ip_str, port, "N/A", "Client connection accepted."); // <-- ADD THIS
 
     client_request_t req;
     bool response_sent = false; 
@@ -308,9 +318,13 @@ void* handle_client_connection(void* p_conn_fd) {
     if (n != sizeof(client_request_t)) {
         fprintf(stderr, "   [SS-Thread]: Error receiving client request. Expected %zu, got %zd\n",
                 sizeof(client_request_t), n);
+        server_log(LOG_ERROR, ip_str, port, "N/A", "Error receiving client request. Expected %zu, got %zd", sizeof(client_request_t), n); // <-- ADD THIS
         close(conn_fd);
         return NULL;
     }
+
+    // --- NEW: Log the request ---
+    server_log(LOG_INFO, ip_str, port, req.username, "REQ: CMD=%d, File='%s'", req.command, req.filename); // <-- ADD THIS
 
     file_lock_t* file_lock = get_lock_for_file(req.filename);
 
@@ -322,6 +336,7 @@ void* handle_client_connection(void* p_conn_fd) {
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
             perror("   [SS-Thread]: send lock error response failed");
         }
+        server_log(LOG_ERROR, ip_str, port, req.username, "NAK: CMD=%d, Status=ERROR, Msg=%s", req.command, res.error_msg); // <-- ADD THIS
         response_sent = true;
     } else {
         // --- We have a lock, now proceed with commands ---
@@ -348,6 +363,15 @@ void* handle_client_connection(void* p_conn_fd) {
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send create response failed");
             }
+            
+            // --- NEW: Log response ---
+            if (res.status == STATUS_OK) {
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=CREATE_FILE, Status=OK, File=%s", req.filename);
+            } else {
+                server_log(LOG_ERROR, ip_str, port, req.username, "NAK: CMD=CREATE_FILE, Status=ERROR, File=%s, Msg=%s", req.filename, res.error_msg);
+            }
+            // --- END NEW ---
+
             response_sent = true;
 
         } else if (req.command == CMD_GET_STATS) {
@@ -377,6 +401,15 @@ void* handle_client_connection(void* p_conn_fd) {
             if (send(conn_fd, &res, sizeof(ss_stats_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send stats response failed");
             }
+
+            // --- NEW: Log response ---
+            if (res.status == STATUS_OK) {
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=GET_STATS, Status=OK, File=%s", req.filename);
+            } else {
+                server_log(LOG_WARN, ip_str, port, req.username, "NAK: CMD=GET_STATS, Status=ERROR, File=%s, Msg=%s", req.filename, res.error_msg);
+            }
+            // --- END NEW ---
+
             response_sent = true;
 
         } else if (req.command == CMD_READ_FILE) {
@@ -394,6 +427,7 @@ void* handle_client_connection(void* p_conn_fd) {
                 if (send(conn_fd, &header_res, sizeof(ss_response_t), 0) < 0) {
                     perror("   [SS-Thread]: send read error response failed");
                 }
+                server_log(LOG_WARN, ip_str, port, req.username, "NAK: CMD=READ_FILE, Status=ERROR, File=%s, Msg=%s", req.filename, header_res.error_msg); // <-- ADD THIS
             } else {
                 header_res.status = STATUS_OK;
                 header_res.error_code = NFS_OK; // UPDATED
@@ -404,6 +438,9 @@ void* handle_client_connection(void* p_conn_fd) {
                     close(conn_fd);
                     return NULL;
                 }
+
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=READ_FILE, Status=OK, File=%s", req.filename); // <-- ADD THIS
+
                 ss_file_data_chunk_t chunk;
                 size_t bytes_read;
                 while ((bytes_read = fread(chunk.data, 1, FILE_BUFFER_SIZE, fp)) > 0) {
@@ -552,6 +589,14 @@ void* handle_client_connection(void* p_conn_fd) {
                 perror("   [SS-Thread]: send final write response failed");
             }
 
+            // --- NEW: Log final write response ---
+            if (final_res.status == STATUS_OK) {
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=WRITE_FILE, Status=OK, File=%s, Sentences=%d", req.filename, final_res.updated_sentence_count);
+            } else {
+                server_log(LOG_WARN, ip_str, port, req.username, "NAK: CMD=WRITE_FILE, Status=ERROR, File=%s, Msg=%s", req.filename, final_res.error_msg);
+            }
+            // --- END NEW ---
+
             response_sent = true;
 
         } else if (req.command == CMD_DELETE_FILE) {
@@ -581,6 +626,15 @@ void* handle_client_connection(void* p_conn_fd) {
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send delete response failed");
             }
+
+            // --- NEW: Log response ---
+            if (res.status == STATUS_OK) {
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=DELETE_FILE, Status=OK, File=%s", req.filename);
+            } else {
+                server_log(LOG_ERROR, ip_str, port, req.username, "NAK: CMD=DELETE_FILE, Status=ERROR, File=%s, Msg=%s", req.filename, res.error_msg);
+            }
+            // --- END NEW ---
+
             response_sent = true;
         }
         else if (req.command == CMD_UNDO_FILE) {
@@ -621,6 +675,15 @@ void* handle_client_connection(void* p_conn_fd) {
             if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
                 perror("   [SS-Thread]: send undo response failed");
             }
+
+            // --- NEW: Log response ---
+            if (res.status == STATUS_OK) {
+                server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=UNDO_FILE, Status=OK, File=%s", req.filename);
+            } else {
+                server_log(LOG_WARN, ip_str, port, req.username, "NAK: CMD=UNDO_FILE, Status=ERROR, File=%s, Msg=%s", req.filename, res.error_msg);
+            }
+            // --- END NEW ---
+
             response_sent = true;
         }
     } 
@@ -633,8 +696,10 @@ void* handle_client_connection(void* p_conn_fd) {
         if (send(conn_fd, &res, sizeof(ss_response_t), 0) < 0) {
             perror("   [SS-Thread]: send error response failed");
         }
+        server_log(LOG_WARN, ip_str, port, req.username, "NAK: Unknown command %d", req.command); // <-- ADD THIS
     }
 
+    server_log(LOG_INFO, ip_str, port, req.username, "Closing connection."); // <-- ADD THIS
     close(conn_fd);
     printf("   [SS-Thread]: Closing client connection.\n");
     return NULL;
@@ -656,9 +721,18 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // --- NEW: Init Logger ---
+    char log_filename[100];
+    sprintf(log_filename, "ss_%d.log", my_client_port);
+    log_init(log_filename);
+    server_log(LOG_INFO, "N/A", 0, "SYS", "--- Storage Server Starting (Port: %d) ---", my_client_port);
+    // --- END NEW ---
+
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (sock_fd < 0) {
         perror("[Main] socket creation failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "socket creation failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     memset(&nm_addr, 0, sizeof(nm_addr));
@@ -666,30 +740,40 @@ int main(int argc, char *argv[]) {
     nm_addr.sin_port = htons(NM_PORT);
     if (inet_pton(AF_INET, NM_IP, &nm_addr.sin_addr) <= 0) {
         perror("[Main] invalid Name Server IP address");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "invalid Name Server IP address"); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     printf("Attempting to connect to Name Server at %s:%d...\n", NM_IP, NM_PORT);
     if (connect(sock_fd, (struct sockaddr*)&nm_addr, sizeof(nm_addr)) < 0) {
         perror("[Main] connection to Name Server failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "connection to Name Server failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     printf("Connected to Name Server!\n");
+    server_log(LOG_INFO, "N/A", 0, "SYS", "Connected to Name Server at %s:%d", NM_IP, NM_PORT); // <-- ADD THIS
 
     // --- STEP 1: Send registration message ---
     message_type_t msg_type = MSG_SS_REGISTER;
     if (send(sock_fd, &msg_type, sizeof(message_type_t), 0) < 0) {
         perror("[Main] send message type failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "send message type failed: %s", strerror(errno)); // <-- ADD THIS
         close(sock_fd);
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     strcpy(reg_data.ss_ip, MY_IP);
     reg_data.client_port = my_client_port; 
     if (send(sock_fd, &reg_data, sizeof(reg_data), 0) < 0) {
         perror("[Main] send registration data failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "send registration data failed: %s", strerror(errno)); // <-- ADD THIS
         close(sock_fd);
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     printf("Successfully registered with Name Server (Port: %d).\n", my_client_port);
+    server_log(LOG_INFO, "N/A", 0, "SYS", "Registration complete. Reporting files..."); // <-- ADD THIS
 
     // --- STEP 2: Scan local directory and report files ---
     printf("Scanning local directory for existing files...\n");
@@ -702,6 +786,7 @@ int main(int argc, char *argv[]) {
             char* ext = strrchr(dir->d_name, '.');
             if (ext && strcmp(ext, ".txt") == 0) {
                 printf("   -> Found file: %s\n", dir->d_name);
+                server_log(LOG_INFO, "N/A", 0, "SYS", "Reporting existing file: %s", dir->d_name); // <-- ADD THIS
                 
                 msg_type = MSG_SS_FILE_LIST_ENTRY;
                 nm_ss_file_entry_t file_entry;
@@ -724,6 +809,8 @@ int main(int argc, char *argv[]) {
 
     if (pthread_mutex_init(&g_lock_map_mutex, NULL) != 0) {
         perror("[Main] g_lock_map_mutex init failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "g_lock_map_mutex init failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
 
@@ -732,6 +819,8 @@ int main(int argc, char *argv[]) {
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) {
         perror("[Main] SS server socket creation failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "SS server socket creation failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
@@ -741,13 +830,18 @@ int main(int argc, char *argv[]) {
     ss_serv_addr.sin_port = htons(my_client_port); 
     if (bind(listen_fd, (struct sockaddr*)&ss_serv_addr, sizeof(ss_serv_addr)) < 0) {
         perror("[Main] SS server bind failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "SS server bind failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     if (listen(listen_fd, 10) < 0) {
         perror("[Main] SS server listen failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "SS server listen failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
     printf("\n[SS-Main]: Storage Server now listening for clients on port %d...\n", my_client_port);
+    server_log(LOG_INFO, "N/A", 0, "SYS", "Storage Server listening for clients on port %d", my_client_port); // <-- ADD THIS
 
     while (1) {
         struct sockaddr_in client_addr;
@@ -755,20 +849,34 @@ int main(int argc, char *argv[]) {
         int conn_fd = accept(listen_fd, (struct sockaddr*)&client_addr, &client_len);
         if (conn_fd < 0) {
             perror("[Main] SS server accept failed");
+            server_log(LOG_ERROR, "N/A", 0, "SYS", "Accept failed: %s", strerror(errno)); // <-- ADD THIS
             continue; 
         }
-        char client_ip[INET_ADDRSTRLEN];
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, INET_ADDRSTRLEN);
-        printf("[SS-Main]: Accepted new client connection from %s\n", client_ip);
+
+        // --- NEW: Pack args for thread ---
+        thread_arg_t* arg = malloc(sizeof(thread_arg_t));
+        if (!arg) {
+            perror("[Main] malloc for thread arg failed");
+            server_log(LOG_ERROR, "N/A", 0, "SYS", "malloc for thread arg failed");
+            close(conn_fd);
+            continue;
+        }
+        arg->conn_fd = conn_fd;
+        inet_ntop(AF_INET, &client_addr.sin_addr, arg->ip_str, INET_ADDRSTRLEN);
+        arg->port = ntohs(client_addr.sin_port);
+        
+        printf("[SS-Main]: Accepted new client connection from %s\n", arg->ip_str); // Keep terminal
+        // (Logging is done inside the thread)
+
         pthread_t tid;
-        int* p_conn_fd = malloc(sizeof(int));
-        *p_conn_fd = conn_fd;
-        if (pthread_create(&tid, NULL, handle_client_connection, p_conn_fd) != 0) {
+        if (pthread_create(&tid, NULL, handle_client_connection, arg) != 0) { // Pass arg
             perror("[Main] pthread_create failed");
-            free(p_conn_fd);
+            server_log(LOG_ERROR, arg->ip_str, arg->port, "SYS", "Failed to create thread."); // <-- ADD THIS
+            free(arg); 
             close(conn_fd);
         }
         pthread_detach(tid); 
+        // --- END NEW ---
     }
 
     close(listen_fd);
@@ -787,5 +895,6 @@ int main(int argc, char *argv[]) {
         free(current_lock);                       
     }
     
+    log_shutdown(); // <-- ADD THIS
     return 0;
 }

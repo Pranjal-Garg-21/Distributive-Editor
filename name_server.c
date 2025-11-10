@@ -12,6 +12,7 @@
 #include <time.h>     // For cache
 #include "common.h"
 #include "uthash.h" 
+#include "logger.h"
 
 #define METADATA_FILE "nm_metadata.dat"
 #define MAX_CACHE_SIZE 128
@@ -887,15 +888,27 @@ void handle_list_users(int conn_fd, client_request_t req) {
 }
 
 // --- Main Connection Handler ---
-void* handle_connection(void* p_conn_fd) {
-    int conn_fd = *((int*)p_conn_fd);
-    free(p_conn_fd);
+void* handle_connection(void* p_arg) {
+    // --- NEW: Unpack thread arguments ---
+    thread_arg_t* arg = (thread_arg_t*)p_arg;
+    int conn_fd = arg->conn_fd;
+    char ip_str[INET_ADDRSTRLEN];
+    strcpy(ip_str, arg->ip_str); // Copy to stack
+    int port = arg->port;
+    free(arg); // Free the heap-allocated struct
+    // --- END NEW ---
+
     message_type_t msg_type;
     ssize_t n = recv(conn_fd, &msg_type, sizeof(message_type_t), 0);
     
     if (n <= 0) {
-        if (n < 0) { perror("[Thread] recv message type failed"); }
-        else { printf("[Thread] Client disconnected before sending message type.\n"); }
+        if (n < 0) { 
+            perror("[Thread] recv message type failed");
+            server_log(LOG_ERROR, ip_str, port, "N/A", "recv message type failed: %s", strerror(errno));
+        } else { 
+            printf("[Thread] Client disconnected before sending message type.\n"); 
+            server_log(LOG_INFO, ip_str, port, "N/A", "Client disconnected before sending message type.");
+        }
         close(conn_fd);
         return NULL;
     }
@@ -923,14 +936,17 @@ void* handle_connection(void* p_conn_fd) {
                     server_list[ss_idx].client_port = reg_data.client_port;
                     server_count++;
                     printf("-> Registered new Storage Server: %s:%d (Assigned SS#%d)\n", reg_data.ss_ip, reg_data.client_port, ss_idx);
+                    server_log(LOG_INFO, ip_str, port, "SS", "Registered new Storage Server: %s:%d (Assigned SS#%d)", reg_data.ss_ip, reg_data.client_port, ss_idx);
                 } else {
                      printf("[Thread] Storage server list is full. Ignoring new server.\n");
+                     server_log(LOG_WARN, ip_str, port, "SS", "Storage server list is full. Ignoring new server %s:%d", reg_data.ss_ip, reg_data.client_port);
                      pthread_rwlock_unlock(&server_list_rwlock);
                      close(conn_fd);
                      return NULL;
                 }
             } else { // Reconnecting server
                 printf("-> Re-registered Storage Server: %s:%d (SS#%d)\n", reg_data.ss_ip, reg_data.client_port, ss_idx);
+                server_log(LOG_INFO, ip_str, port, "SS", "Re-registered Storage Server: %s:%d (SS#%d)", reg_data.ss_ip, reg_data.client_port, ss_idx);
             }
             
             server_list[ss_idx].active = true;
@@ -958,6 +974,7 @@ void* handle_connection(void* p_conn_fd) {
                             if (found_file->ss_index != ss_idx) {
                                 printf("   [Sync] Re-mapping file '%s' from SS#%d to SS#%d\n", 
                                        file_entry.filename, found_file->ss_index, ss_idx);
+                                server_log(LOG_INFO, ip_str, port, "SS", "[Sync] Re-mapping file '%s' from SS#%d to SS#%d", file_entry.filename, found_file->ss_index, ss_idx);
                                 found_file->ss_index = ss_idx;
                                 cache_invalidate(found_file->filename); // Invalidate stale cache
                             }
@@ -969,6 +986,7 @@ void* handle_connection(void* p_conn_fd) {
                             // require an "admin" user or a way to claim orphans.
                              printf("   [Sync] Found ORPHAN file '%s' on SS#%d. Metadata not created.\n", 
                                     file_entry.filename, ss_idx);
+                             server_log(LOG_WARN, ip_str, port, "SS", "[Sync] Found ORPHAN file '%s' on SS#%d. Metadata not created.", file_entry.filename, ss_idx);
                         }
                     }
                 }
@@ -979,6 +997,7 @@ void* handle_connection(void* p_conn_fd) {
 
         } else {
             fprintf(stderr, "[Thread] Error receiving SS registration data. Expected %zu, got %zd\n", sizeof(ss_registration_t), n);
+            server_log(LOG_ERROR, ip_str, port, "SS", "Error receiving SS registration data. Expected %zu, got %zd", sizeof(ss_registration_t), n);
         }
         
     } else if (msg_type == MSG_CLIENT_NM_REQUEST) {
@@ -991,9 +1010,14 @@ void* handle_connection(void* p_conn_fd) {
         
         if (n != sizeof(client_request_t)) {
             fprintf(stderr, "[Thread] Error receiving client request. Expected %zu, got %zd\n", sizeof(client_request_t), n);
+            server_log(LOG_ERROR, ip_str, port, "N/A", "Error receiving client request. Expected %zu, got %zd", sizeof(client_request_t), n);
             close(conn_fd);
             return NULL;
         }
+
+        // --- NEW: Log the incoming request ---
+        server_log(LOG_INFO, ip_str, port, req.username, "REQ: CMD=%d, File='%s', TargetUser='%s'", req.command, req.filename, req.target_username);
+
 
         if (req.command == CMD_CREATE_FILE) {
             printf("   Handling CMD_CREATE_FILE for '%s'\n", req.filename);
@@ -1057,10 +1081,20 @@ void* handle_connection(void* p_conn_fd) {
         if (!response_sent_by_handler) {
             if (send(conn_fd, &res, sizeof(nm_response_t), 0) < 0) {
                 perror("[Thread] send response to client failed");
+                server_log(LOG_ERROR, ip_str, port, req.username, "Send response failed: %s", strerror(errno));
+            } else {
+                // --- NEW: Log the response ---
+                if (res.status == STATUS_OK) {
+                    server_log(LOG_INFO, ip_str, port, req.username, "ACK: CMD=%d, Status=OK", req.command);
+                } else {
+                    server_log(LOG_WARN, ip_str, port, req.username, "NAK: CMD=%d, Status=ERROR, Msg=%s", req.command, res.error_msg);
+                }
+                // --- END NEW ---
             }
         }
     }
     
+    server_log(LOG_INFO, ip_str, port, "N/A", "Closing connection.");
     close(conn_fd);
     return NULL;
 }
@@ -1070,6 +1104,8 @@ void* handle_connection(void* p_conn_fd) {
 void signal_handler(int sig) {
     if (sig == SIGINT) {
         printf("\n[Main] SIGINT received. Shutting down gracefully.\n");
+        server_log(LOG_INFO, "N/A", 0, "SYS", "SIGINT received. Shutting down gracefully.");
+        
         printf("[Main] Saving metadata to disk...\n");
         save_metadata_to_disk();
         printf("[Main] Metadata saved. Goodbye.\n");
@@ -1080,6 +1116,7 @@ void signal_handler(int sig) {
         pthread_rwlock_destroy(&file_map_rwlock);
         pthread_mutex_destroy(&g_cache_mutex);
         
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_SUCCESS);
     }
 }
@@ -1394,6 +1431,9 @@ int main() {
     int listen_fd;
     struct sockaddr_in serv_addr;
 
+    log_init("nm.log"); // <-- ADD THIS
+    server_log(LOG_INFO, "N/A", 0, "SYS", "--- Name Server Starting ---"); // <-- ADD THIS
+
     // --- NEW: Setup signal handler ---
     struct sigaction sa;
     sa.sa_handler = signal_handler;
@@ -1401,30 +1441,52 @@ int main() {
     sa.sa_flags = 0;
     if (sigaction(SIGINT, &sa, NULL) == -1) {
         perror("[Main] sigaction failed");
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "sigaction failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
 
     listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0) { perror("[Main] socket creation failed"); exit(EXIT_FAILURE); }
+    if (listen_fd < 0) { 
+        perror("[Main] socket creation failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "socket creation failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
+    }
     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int));
     memset(&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = htonl(INADDR_ANY); 
     serv_addr.sin_port = htons(NM_PORT);
     if (bind(listen_fd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("[Main] bind failed"); exit(EXIT_FAILURE);
+        perror("[Main] bind failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "bind failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
     }
     if (listen(listen_fd, 10) < 0) {
-        perror("[Main] listen failed"); exit(EXIT_FAILURE);
+        perror("[Main] listen failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "listen failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
     }
     if (pthread_rwlock_init(&server_list_rwlock, NULL) != 0) {
-        perror("[Main] server rwlock init failed"); exit(EXIT_FAILURE);
+        perror("[Main] server rwlock init failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "server rwlock init failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
     }
     if (pthread_rwlock_init(&file_map_rwlock, NULL) != 0) {
-        perror("[Main] file map rwlock init failed"); exit(EXIT_FAILURE);
+        perror("[Main] file map rwlock init failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "file map rwlock init failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
     }
     if (pthread_mutex_init(&g_cache_mutex, NULL) != 0) {
-        perror("[Main] cache mutex init failed"); exit(EXIT_FAILURE);
+        perror("[Main] cache mutex init failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "cache mutex init failed: %s", strerror(errno)); // <-- ADD THIS
+        log_shutdown(); // <-- ADD THIS
+        exit(EXIT_FAILURE); 
     }
     // --- NEW: Load metadata from disk before starting ---
     // We must lock the map while loading it.
@@ -1434,6 +1496,8 @@ int main() {
     // --- END NEW ---
 
     printf("Name Server listening on port %d...\n", NM_PORT);
+    server_log(LOG_INFO, "N/A", 0, "SYS", "Name Server listening on port %d", NM_PORT); // <-- ADD THIS
+
     while (1) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -1444,18 +1508,34 @@ int main() {
                 continue;
             }
             perror("[Main] accept failed");
+            server_log(LOG_ERROR, "N/A", 0, "SYS", "Accept failed: %s", strerror(errno)); // <-- ADD THIS
             continue; 
         }
+
+        // --- NEW: Pack args for thread ---
+        thread_arg_t* arg = malloc(sizeof(thread_arg_t));
+        if (!arg) {
+            perror("[Main] malloc for thread arg failed");
+            server_log(LOG_ERROR, "N/A", 0, "SYS", "malloc for thread arg failed");
+            close(conn_fd);
+            continue;
+        }
+        arg->conn_fd = conn_fd;
+        arg->port = ntohs(client_addr.sin_port);
+        inet_ntop(AF_INET, &client_addr.sin_addr, arg->ip_str, INET_ADDRSTRLEN);
+        
+        server_log(LOG_INFO, arg->ip_str, arg->port, "N/A", "Connection accepted."); // <-- ADD THIS
+
         pthread_t tid;
-        int* p_conn_fd = malloc(sizeof(int));
-        *p_conn_fd = conn_fd;
-        if (pthread_create(&tid, NULL, handle_connection, p_conn_fd) != 0) {
+        if (pthread_create(&tid, NULL, handle_connection, arg) != 0) { // Pass arg
              perror("[Main] pthread_create failed");
-             free(p_conn_fd); 
+             server_log(LOG_ERROR, arg->ip_str, arg->port, "SYS", "Failed to create thread."); // <-- ADD THIS
+             free(arg); // Free the arg
              close(conn_fd);  
         } else {
             pthread_detach(tid);
         }
+        // --- END NEW ---
     } 
     
     // This part will only be reached if the loop breaks, 
@@ -1467,5 +1547,6 @@ int main() {
     pthread_rwlock_destroy(&file_map_rwlock);
     pthread_mutex_destroy(&g_cache_mutex);
     
+    log_shutdown(); // <-- ADD THIS
     return 0;
 }

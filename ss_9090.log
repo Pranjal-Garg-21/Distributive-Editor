@@ -1,0 +1,20 @@
+[2025-11-10 20:29:24] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-10 20:29:24] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-10 20:29:24] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-10 20:29:24] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:58154] [N/A] Client connection accepted.
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:58154] [alice] REQ: CMD=0, File='file.txt'
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:58154] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=file.txt
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:58154] [alice] Closing connection.
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:50734] [N/A] Client connection accepted.
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:50734] [alice] REQ: CMD=5, File='file.txt'
+[2025-11-10 20:30:38] [INFO] [127.0.0.1:50734] [alice] ACK: CMD=WRITE_FILE, Status=OK, File=file.txt, Sentences=1
+[2025-11-10 20:30:38] [INFO] [127.0.0.1:50734] [alice] Closing connection.
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:43164] [N/A] Client connection accepted.
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:43164] [alice] REQ: CMD=3, File='file.txt'
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:43164] [alice] ACK: CMD=READ_FILE, Status=OK, File=file.txt
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:43164] [alice] Closing connection.
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [N/A] Client connection accepted.
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] REQ: CMD=2, File='file.txt'
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] ACK: CMD=DELETE_FILE, Status=OK, File=file.txt
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] Closing connection.

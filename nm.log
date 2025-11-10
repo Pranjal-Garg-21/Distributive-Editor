@@ -1,0 +1,24 @@
+[2025-11-10 20:29:17] [INFO] [N/A:0] [SYS] --- Name Server Starting ---
+[2025-11-10 20:29:17] [INFO] [N/A:0] [SYS] Name Server listening on port 8080
+[2025-11-10 20:29:24] [INFO] [127.0.0.1:56786] [N/A] Connection accepted.
+[2025-11-10 20:29:24] [INFO] [127.0.0.1:56786] [SS] Registered new Storage Server: 127.0.0.1:9090 (Assigned SS#0)
+[2025-11-10 20:29:24] [INFO] [127.0.0.1:56786] [N/A] Closing connection.
+[2025-11-10 20:30:16] [INFO] [127.0.0.1:34810] [N/A] Connection accepted.
+[2025-11-10 20:30:16] [INFO] [127.0.0.1:34810] [alice] REQ: CMD=1, File='', TargetUser=''
+[2025-11-10 20:30:16] [INFO] [127.0.0.1:34810] [N/A] Closing connection.
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:39678] [N/A] Connection accepted.
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:39678] [alice] REQ: CMD=0, File='file.txt', TargetUser=''
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:39678] [alice] ACK: CMD=0, Status=OK
+[2025-11-10 20:30:26] [INFO] [127.0.0.1:39678] [N/A] Closing connection.
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:49876] [N/A] Connection accepted.
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:49876] [alice] REQ: CMD=5, File='file.txt', TargetUser=''
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:49876] [alice] ACK: CMD=5, Status=OK
+[2025-11-10 20:30:32] [INFO] [127.0.0.1:49876] [N/A] Closing connection.
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:50226] [N/A] Connection accepted.
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:50226] [alice] REQ: CMD=3, File='file.txt', TargetUser=''
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:50226] [alice] ACK: CMD=3, Status=OK
+[2025-11-10 20:30:43] [INFO] [127.0.0.1:50226] [N/A] Closing connection.
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:42102] [N/A] Connection accepted.
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:42102] [alice] REQ: CMD=2, File='file.txt', TargetUser=''
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:42102] [alice] ACK: CMD=2, Status=OK
+[2025-11-10 20:30:49] [INFO] [127.0.0.1:42102] [N/A] Closing connection.
