@@ -28,7 +28,12 @@ typedef struct {
 
 typedef enum { NM_ACCESS_READ, NM_ACCESS_WRITE } nm_access_level_t;
 typedef struct { char username[MAX_USERNAME_LEN]; nm_access_level_t level; UT_hash_handle hh; } access_entry_t;
-typedef struct { char filename[MAX_FILENAME_LEN]; char owner[MAX_USERNAME_LEN]; int ss_index; access_entry_t* access_list; UT_hash_handle hh; } file_info_t;
+typedef struct { char filename[MAX_FILENAME_LEN]; char service_name[MAX_FILENAME_LEN];char owner[MAX_USERNAME_LEN]; int ss_index; access_entry_t* access_list; UT_hash_handle hh; bool is_directory; } file_info_t;
+// Helper to check if a string starts with a prefix (for VIEW_FOLDER)
+bool starts_with(const char *pre, const char *str) {
+    size_t lenpre = strlen(pre), lenstr = strlen(str);
+    return lenstr < lenpre ? false : memcmp(pre, str, lenpre) == 0;
+}
 ss_info_t server_list[MAX_STORAGE_SERVERS];
 int server_count = 0;
 pthread_rwlock_t server_list_rwlock; 
@@ -44,7 +49,7 @@ static file_info_t* cache_get(const char* filename);
 static void cache_put(file_info_t* file_info);
 static void cache_invalidate(const char* filename);
 
-
+bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level);
 // --- NEW CACHE DEFINITIONS ---
 
 // An entry in our LRU cache
@@ -96,7 +101,181 @@ int connect_to_server(char* ip, int port) {
     }
     return sock_fd;
 }
+// In name_server.c
 
+// --- HANDLER: Create Checkpoint ---
+void handle_checkpoint(nm_response_t* res, client_request_t req) {
+    // 1. Lock & Verify Permissions (READ access is enough to create a copy, 
+    //    but usually you want WRITE access to manage the file's versions)
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    file_info_t* file = cache_get(req.filename);
+    if (!file) HASH_FIND_STR(g_file_map, req.filename, file);
+
+    if (!file) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "File not found");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    // Permission check: Needs READ access to copy the data
+    if (!check_permission(file, req.username, NM_ACCESS_READ)) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Permission denied");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    
+    // 2. Forward to SS
+    pthread_rwlock_rdlock(&server_list_rwlock);
+    int ss_idx = file->ss_index;
+    if (ss_idx < 0 || !server_list[ss_idx].active) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Storage Server offline");
+        pthread_rwlock_unlock(&server_list_rwlock);
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    int ss_sock = connect_to_server(server_list[ss_idx].ip, server_list[ss_idx].client_port);
+    pthread_rwlock_unlock(&server_list_rwlock);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    if (ss_sock < 0) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Could not connect to Storage Server");
+        return;
+    }
+
+    // Send physical name to SS
+    strcpy(req.filename, file->service_name); 
+    send(ss_sock, &req, sizeof(client_request_t), 0);
+
+    ss_response_t ss_res;
+    recv(ss_sock, &ss_res, sizeof(ss_response_t), 0);
+    close(ss_sock);
+
+    res->status = ss_res.status;
+    strcpy(res->error_msg, ss_res.error_msg);
+}
+
+// --- HANDLER: List Checkpoints (NM forwards to SS) ---
+void handle_list_checkpoints(int client_fd, client_request_t req) {
+    nm_response_t res = {0};
+
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    file_info_t* file = cache_get(req.filename);
+    if (!file) HASH_FIND_STR(g_file_map, req.filename, file);
+
+    if (!file) {
+        res.status = STATUS_ERROR;
+        strcpy(res.error_msg, "File not found");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        send(client_fd, &res, sizeof(nm_response_t), 0);
+        return;
+    }
+
+    // Permission: Need Read access
+    if (!check_permission(file, req.username, NM_ACCESS_READ)) {
+        res.status = STATUS_ERROR;
+        strcpy(res.error_msg, "Permission denied");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        send(client_fd, &res, sizeof(nm_response_t), 0);
+        return;
+    }
+
+    // Connect to SS
+    pthread_rwlock_rdlock(&server_list_rwlock);
+    int ss_sock = connect_to_server(server_list[file->ss_index].ip, server_list[file->ss_index].client_port);
+    pthread_rwlock_unlock(&server_list_rwlock);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    if (ss_sock < 0) {
+        res.status = STATUS_ERROR;
+        strcpy(res.error_msg, "Storage Server offline");
+        send(client_fd, &res, sizeof(nm_response_t), 0);
+        return;
+    }
+
+    // Forward Request
+    strcpy(req.filename, file->service_name);
+    send(ss_sock, &req, sizeof(client_request_t), 0);
+
+    // 1. Recv Header from SS
+    recv(ss_sock, &res, sizeof(nm_response_t), 0);
+    send(client_fd, &res, sizeof(nm_response_t), 0);
+
+    // 2. Recv/Send loop for checkpoints
+    if (res.status == STATUS_OK) {
+        char checkpoint_name[MAX_FILENAME_LEN];
+        for(int i=0; i<res.file_count; i++) {
+            recv(ss_sock, checkpoint_name, MAX_FILENAME_LEN, 0);
+            send(client_fd, checkpoint_name, MAX_FILENAME_LEN, 0);
+        }
+    }
+    close(ss_sock);
+}
+
+// --- HANDLER: Revert (Needs Write Access) ---
+void handle_revert_checkpoint(nm_response_t* res, client_request_t req) {
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    file_info_t* file = cache_get(req.filename);
+    if (!file) HASH_FIND_STR(g_file_map, req.filename, file);
+
+    if (!file || !check_permission(file, req.username, NM_ACCESS_WRITE)) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, file ? "Permission denied" : "File not found");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // Forward to SS...
+    pthread_rwlock_rdlock(&server_list_rwlock);
+    int ss_sock = connect_to_server(server_list[file->ss_index].ip, server_list[file->ss_index].client_port);
+    pthread_rwlock_unlock(&server_list_rwlock);
+    pthread_rwlock_unlock(&file_map_rwlock);
+    
+    if (ss_sock < 0) { res->status=STATUS_ERROR; return; }
+
+    strcpy(req.filename, file->service_name);
+    send(ss_sock, &req, sizeof(client_request_t), 0);
+    
+    ss_response_t ss_res;
+    recv(ss_sock, &ss_res, sizeof(ss_response_t), 0);
+    close(ss_sock);
+
+    res->status = ss_res.status;
+    strcpy(res->error_msg, ss_res.error_msg);
+}
+
+// --- HANDLER: View Checkpoint (Use handle_read_file logic but specific tag) ---
+void handle_view_checkpoint(nm_response_t* res, client_request_t req) {
+     // This is tricky. The Client needs to talk to SS to read the specific file.
+     // We need to tell the client the physical filename of the CHECKPOINT.
+     // Format: <service_name>.cp.<tag>
+     
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    file_info_t* file = cache_get(req.filename);
+    if (!file) HASH_FIND_STR(g_file_map, req.filename, file);
+
+    if (!file || !check_permission(file, req.username, NM_ACCESS_READ)) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, file ? "Permission denied" : "File not found");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    pthread_rwlock_rdlock(&server_list_rwlock);
+    strcpy(res->ss_ip, server_list[file->ss_index].ip);
+    res->ss_port = server_list[file->ss_index].client_port;
+    pthread_rwlock_unlock(&server_list_rwlock);
+    
+    // Construct the physical checkpoint name
+    // FIX: Use snprintf to prevent buffer overflow warnings
+snprintf(res->storage_filename, MAX_FILENAME_LEN, "%.190s.cp.%.50s", 
+         file->service_name, req.checkpoint_tag);
+    res->status = STATUS_OK;
+    pthread_rwlock_unlock(&file_map_rwlock);
+}
 bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level) {
     if (file == NULL) return false;
     access_entry_t* found_access;
@@ -106,7 +285,199 @@ bool check_permission(file_info_t* file, const char* username, nm_access_level_t
     if (required_level == NM_ACCESS_WRITE) { return (found_access->level == NM_ACCESS_WRITE); }
     return false;
 }
+void handle_create_folder(nm_response_t* res, client_request_t req) {
+    pthread_rwlock_wrlock(&file_map_rwlock);
 
+    file_info_t* found_file;
+    HASH_FIND_STR(g_file_map, req.filename, found_file);
+
+    if (found_file) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Folder or file already exists");
+    } else {
+        file_info_t* new_folder = (file_info_t*)calloc(1, sizeof(file_info_t));
+        strcpy(new_folder->filename, req.filename);
+        strcpy(new_folder->owner, req.username);
+        new_folder->is_directory = true;
+        new_folder->ss_index = -1; // Folders don't live on an SS
+        
+        // Add owner access
+        access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
+        strcpy(owner_access->username, req.username);
+        owner_access->level = NM_ACCESS_WRITE;
+        HASH_ADD_STR(new_folder->access_list, username, owner_access);
+
+        HASH_ADD_STR(g_file_map, filename, new_folder);
+        
+        res->status = STATUS_OK;
+        printf("-> Folder Created: '%s'\n", req.filename);
+    }
+    pthread_rwlock_unlock(&file_map_rwlock);
+}
+
+void handle_move_file(nm_response_t* res, client_request_t req) {
+    pthread_rwlock_wrlock(&file_map_rwlock);
+
+    file_info_t* file;
+    HASH_FIND_STR(g_file_map, req.filename, file);
+
+    // 1. Check source
+    if (!file) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Source file not found");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+    if (!check_permission(file, req.username, NM_ACCESS_WRITE)) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "Permission denied");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // 2. Check destination folder (req.dest_path)
+    // Note: If dest_path is empty/root, that's valid. 
+    // If it's "folder1", we must ensure "folder1" exists and is a directory.
+    if (strlen(req.dest_path) > 0) {
+        file_info_t* folder;
+        HASH_FIND_STR(g_file_map, req.dest_path, folder);
+        if (!folder || !folder->is_directory) {
+            res->status = STATUS_ERROR;
+            strcpy(res->error_msg, "Destination folder does not exist");
+            pthread_rwlock_unlock(&file_map_rwlock);
+            return;
+        }
+    }
+
+   // 3. Construct new logical path
+    // FIX: Use a double-sized buffer to prevent snprintf truncation warning
+    char new_full_path[MAX_FILENAME_LEN * 2]; 
+    char *leaf = strrchr(file->filename, '/');
+    const char *just_name = leaf ? leaf + 1 : file->filename;
+
+    if (strlen(req.dest_path) == 0) {
+        // Move to root
+        strncpy(new_full_path, just_name, MAX_FILENAME_LEN * 2);
+    } else {
+        // Move to folder
+        snprintf(new_full_path, sizeof(new_full_path), "%s/%s", req.dest_path, just_name);
+    }
+
+    // FIX: Explicit check if the resulting path is too long for the system
+    if (strlen(new_full_path) >= MAX_FILENAME_LEN) {
+        res->status = STATUS_ERROR;
+        res->error_code = NFS_ERR_INVALID_FILENAME;
+        strcpy(res->error_msg, "Resulting path is too long");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // 4. Check collision
+    file_info_t* collision;
+    HASH_FIND_STR(g_file_map, new_full_path, collision);
+    if (collision) {
+        res->status = STATUS_ERROR;
+        strcpy(res->error_msg, "File already exists in destination");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // 5. Perform the Move (re-keying in uthash requires add/delete)
+    // We create a NEW entry with the NEW name, copy data, delete OLD.
+    file_info_t* new_entry = (file_info_t*)malloc(sizeof(file_info_t));
+    memcpy(new_entry, file, sizeof(file_info_t)); // Copy all data (ss_index, service_name, etc)
+    strcpy(new_entry->filename, new_full_path);   // Update key
+    
+    // IMPORTANT: access_list is a pointer. We can just move the pointer, 
+    // but we must set the old one to NULL so we don't double free.
+    file->access_list = NULL; 
+
+    HASH_ADD_STR(g_file_map, filename, new_entry);
+    HASH_DEL(g_file_map, file);
+    free(file);
+
+    cache_invalidate(req.filename); // Remove old name from cache
+    
+    res->status = STATUS_OK;
+    printf("-> Moved '%s' to '%s'\n", req.filename, new_full_path);
+
+    pthread_rwlock_unlock(&file_map_rwlock);
+}
+
+void handle_view_folder(int conn_fd, client_request_t req) {
+    nm_response_t res_header = {0};
+    int file_count = 0;
+
+    // 1. Hold read lock
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    
+    // 2. Count matching files
+    file_info_t *current_file, *tmp;
+    // FIX: Increase size slightly to hold the trailing '/' without truncation warning
+char prefix[MAX_FILENAME_LEN + 5];
+    
+    // Logic: If req.filename is empty, view root. Otherwise view specific folder.
+    if (strlen(req.filename) > 0) {
+        snprintf(prefix, sizeof(prefix), "%s/", req.filename); 
+    } else {
+        prefix[0] = '\0'; // Root view
+    }
+
+    HASH_ITER(hh, g_file_map, current_file, tmp) {
+        // Check if file is inside the requested folder
+        if (strlen(prefix) == 0 || starts_with(prefix, current_file->filename)) {
+            file_count++;
+        }
+    }
+
+    // 3. Send Header
+    res_header.status = STATUS_OK;
+    res_header.error_code = NFS_OK;
+    res_header.file_count = file_count;
+    
+    if (send(conn_fd, &res_header, sizeof(nm_response_t), 0) < 0) {
+        perror("send VIEW_FOLDER header failed");
+        pthread_rwlock_unlock(&file_map_rwlock);
+        return;
+    }
+
+    // 4. Send Entries (This is where the fix is applied)
+    nm_file_entry_t entry;
+    HASH_ITER(hh, g_file_map, current_file, tmp) {
+        if (strlen(prefix) == 0 || starts_with(prefix, current_file->filename)) {
+             
+             // Copy Basic Info
+             strcpy(entry.filename, current_file->filename);
+             strcpy(entry.owner, current_file->owner);
+             
+             // --- FIX START: Populate SS details and Physical Name ---
+             // We need to check if the SS index is valid to avoid segfaults
+             pthread_rwlock_rdlock(&server_list_rwlock); 
+             if (!current_file->is_directory && 
+                  current_file->ss_index >= 0 && 
+                  current_file->ss_index < server_count && 
+                  server_list[current_file->ss_index].active) {
+                 
+                 strcpy(entry.ss_ip, server_list[current_file->ss_index].ip);
+                 entry.ss_port = server_list[current_file->ss_index].client_port;
+                 // Map Logical Name -> Physical Name so client can talk to SS
+                 strcpy(entry.storage_filename, current_file->service_name); 
+                 
+             } else {
+                 // It's a folder, or the SS is down/invalid
+                 strcpy(entry.ss_ip, "N/A");
+                 entry.ss_port = 0;
+                 entry.storage_filename[0] = '\0'; 
+             }
+             pthread_rwlock_unlock(&server_list_rwlock);
+             // --- FIX END ---
+
+             send(conn_fd, &entry, sizeof(nm_file_entry_t), 0);
+        }
+    }
+    
+    pthread_rwlock_unlock(&file_map_rwlock);
+}
 // --- (All handle_... functions from handle_exec_file to handle_list_users are UNCHANGED) ---
 void handle_exec_file(int client_conn_fd, client_request_t req) {
     printf("   Handling CMD_EXEC for '%s' by user '%s'\n", req.filename, req.username);
@@ -173,6 +544,8 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
 
     // Re-use the request struct, but set command to READ
     req.command = CMD_READ_FILE;
+    // FIX: Use physical name for SS retrieval
+    strcpy(req.filename, found_file->service_name);
     send(ss_sock_fd, &req, sizeof(client_request_t), 0);
 
     ss_response_t ss_res; // SS's header
@@ -296,8 +669,16 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         pthread_rwlock_unlock(&server_list_rwlock);
         return;
     }
-
-    send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+    // --- FIX START: Flatten filename for Storage Server ---
+    client_request_t ss_req = req; // Create a copy
+    // Replace all '/' with '_' so SS creates a flat file "work_project.txt"
+    for (int i = 0; ss_req.filename[i]; i++) {
+        if (ss_req.filename[i] == '/') {
+            ss_req.filename[i] = '_';
+        }
+    }
+    send(ss_sock_fd, &ss_req, sizeof(client_request_t), 0); // Send the MODIFIED request
+    // --- FIX END ---
     ss_response_t ss_res;
     if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
         perror("   [NM-Create] recv response from SS failed");
@@ -345,6 +726,16 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     }
     
     strcpy(new_file->filename, req.filename);
+    // FIX: Create a unique physical name by replacing '/' with '_'
+    // e.g., "folder/doc.txt" -> "folder_doc.txt"
+    strcpy(new_file->service_name, req.filename);
+    for(int i = 0; new_file->service_name[i]; i++) {
+        if(new_file->service_name[i] == '/') {
+            new_file->service_name[i] = '_';
+        }
+    }
+    
+    new_file->is_directory = false; // It's a file
     strcpy(new_file->owner, req.username);
     new_file->ss_index = assigned_ss_index; 
     new_file->access_list = NULL; 
@@ -437,6 +828,8 @@ void handle_delete_file(nm_response_t* res, client_request_t req) {
     }
 
     send(ss_sock_fd, &req, sizeof(client_request_t), 0);
+    // FIX: Send the physical storage name to SS, not the logical folder path
+strcpy(req.filename, found_file->service_name);
     ss_response_t ss_res;
     if (recv(ss_sock_fd, &ss_res, sizeof(ss_response_t), 0) != sizeof(ss_response_t)) {
         perror("   [NM-Delete] recv response from SS failed");
@@ -527,6 +920,7 @@ void handle_view_files(int conn_fd, client_request_t req) {
         strcpy(file_entry.owner, current_file->owner);
         strcpy(file_entry.ss_ip, server_list[ss_idx].ip);
         file_entry.ss_port = server_list[ss_idx].client_port;
+        strcpy(file_entry.storage_filename, current_file->service_name); // FIX
         if (send(conn_fd, &file_entry, sizeof(nm_file_entry_t), 0) < 0) {
             perror("send file entry failed");
             break; 
@@ -571,6 +965,7 @@ void handle_read_file(nm_response_t* res, client_request_t req) {
             res->error_code = NFS_OK; 
             strcpy(res->ss_ip, server_list[ss_idx].ip);
             res->ss_port = server_list[ss_idx].client_port;
+            strcpy(res->storage_filename, found_file->service_name);
             printf("-> Read Access Granted: File '%s' (User: %s) on SS#%d\n", req.filename, req.username, ss_idx);
         }
     }
@@ -613,6 +1008,7 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
             res->error_code = NFS_OK; 
             strcpy(res->ss_ip, server_list[ss_idx].ip);
             res->ss_port = server_list[ss_idx].client_port;
+            strcpy(res->storage_filename, found_file->service_name);
             printf("-> Write Access Granted: File '%s' (User: %s) on SS#%d\n", req.filename, req.username, ss_idx);
         }
     }
@@ -765,6 +1161,7 @@ void handle_get_info(int conn_fd, client_request_t req) {
             strcpy(res_header.ss_ip, server_list[ss_idx].ip);
             res_header.ss_port = server_list[ss_idx].client_port;
             res_header.acl_count = HASH_COUNT(found_file->access_list);
+            strcpy(res_header.storage_filename, found_file->service_name); // FIX
         }
     }
     
@@ -1071,8 +1468,35 @@ void* handle_connection(void* p_arg) {
             printf("   Handling CMD_EXEC for '%s'\n", req.filename);
             handle_exec_file(conn_fd, req);
             response_sent_by_handler = 1; // IMPORTANT!
-        }
-        else {
+        } else if (req.command == CMD_CREATE_FOLDER) {
+            printf("   Handling CMD_CREATE_FOLDER for '%s'\n", req.filename);
+            handle_create_folder(&res, req);
+        
+        } else if (req.command == CMD_MOVE_FILE) {
+            printf("   Handling CMD_MOVE_FILE for '%s' -> '%s'\n", req.filename, req.dest_path);
+            handle_move_file(&res, req);
+
+        } else if (req.command == CMD_VIEW_FOLDER) {
+            printf("   Handling CMD_VIEW_FOLDER for '%s'\n", req.filename);
+            handle_view_folder(conn_fd, req);
+            response_sent_by_handler = 1; // Important: Handler sent response directly
+        } else if (req.command == CMD_CHECKPOINT) {
+            printf("   Handling CMD_CHECKPOINT for '%s'\n", req.filename);
+            handle_checkpoint(&res, req);
+
+        } else if (req.command == CMD_REVERT) {
+            printf("   Handling CMD_REVERT for '%s'\n", req.filename);
+            handle_revert_checkpoint(&res, req);
+
+        } else if (req.command == CMD_VIEW_CHECKPOINT) {
+             printf("   Handling CMD_VIEW_CHECKPOINT for '%s'\n", req.filename);
+             handle_view_checkpoint(&res, req);
+        
+        } else if (req.command == CMD_LIST_CHECKPOINTS) {
+             printf("   Handling CMD_LIST_CHECKPOINTS for '%s'\n", req.filename);
+             handle_list_checkpoints(conn_fd, req);
+             response_sent_by_handler = 1;
+        } else {
             res.status = STATUS_ERROR;
             res.error_code = NFS_ERR_INVALID_INPUT; 
             strcpy(res.error_msg, "Unknown command");

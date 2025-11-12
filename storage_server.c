@@ -685,6 +685,99 @@ void* handle_client_connection(void* p_arg) {
             // --- END NEW ---
 
             response_sent = true;
+        } else if (req.command == CMD_CHECKPOINT) {
+            printf("   [SS-Thread]: Handling CMD_CHECKPOINT...\n");
+            pthread_rwlock_rdlock(&file_lock->file_rwlock); // Read lock on source file
+            
+            ss_response_t res = {0};
+            char cp_filename[MAX_FILENAME_LEN + 60];
+            sprintf(cp_filename, "%s.cp.%s", req.filename, req.checkpoint_tag);
+
+            // Check if tag already exists
+            if (access(cp_filename, F_OK) == 0) {
+                res.status = STATUS_ERROR;
+                strcpy(res.error_msg, "Checkpoint tag already exists");
+            } else {
+                // Copy file
+                FILE *src = fopen(req.filename, "r");
+                FILE *dst = fopen(cp_filename, "w");
+                if (src && dst) {
+                    char buf[4096];
+                    size_t bytes;
+                    while ((bytes = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, bytes, dst);
+                    res.status = STATUS_OK;
+                } else {
+                    res.status = STATUS_ERROR;
+                    strcpy(res.error_msg, "File copy failed");
+                }
+                if(src) fclose(src);
+                if(dst) fclose(dst);
+            }
+            pthread_rwlock_unlock(&file_lock->file_rwlock);
+            send(conn_fd, &res, sizeof(ss_response_t), 0);
+            response_sent = true;
+
+        } else if (req.command == CMD_REVERT) {
+            printf("   [SS-Thread]: Handling CMD_REVERT...\n");
+            pthread_rwlock_wrlock(&file_lock->file_rwlock); // Write lock on target
+            
+            ss_response_t res = {0};
+            char cp_filename[MAX_FILENAME_LEN + 60];
+            sprintf(cp_filename, "%s.cp.%s", req.filename, req.checkpoint_tag);
+
+            // Copy Checkpoint -> Main File
+            FILE *src = fopen(cp_filename, "r");
+            FILE *dst = fopen(req.filename, "w"); // Overwrite
+            
+            if (src && dst) {
+                char buf[4096];
+                size_t bytes;
+                while ((bytes = fread(buf, 1, sizeof(buf), src)) > 0) fwrite(buf, 1, bytes, dst);
+                res.status = STATUS_OK;
+            } else {
+                res.status = STATUS_ERROR;
+                strcpy(res.error_msg, "Checkpoint not found or write failed");
+            }
+            if(src) fclose(src);
+            if(dst) fclose(dst);
+
+            pthread_rwlock_unlock(&file_lock->file_rwlock);
+            send(conn_fd, &res, sizeof(ss_response_t), 0);
+            response_sent = true;
+
+        } else if (req.command == CMD_LIST_CHECKPOINTS) {
+             printf("   [SS-Thread]: Handling CMD_LIST_CHECKPOINTS...\n");
+             nm_response_t res = {0};
+             
+             // Scan directory
+             char prefix[MAX_FILENAME_LEN + 10];
+             sprintf(prefix, "%s.cp.", req.filename);
+             int prefix_len = strlen(prefix);
+             
+             struct dirent **namelist;
+             int n = scandir(".", &namelist, NULL, alphasort);
+             int count = 0;
+             
+             // First pass: Count
+             for (int i=0; i<n; i++) {
+                 if (strncmp(namelist[i]->d_name, prefix, prefix_len) == 0) count++;
+             }
+             
+             res.status = STATUS_OK;
+             res.file_count = count;
+             send(conn_fd, &res, sizeof(nm_response_t), 0);
+             
+             // Second pass: Send names
+             char tag[MAX_FILENAME_LEN];
+             for (int i=0; i<n; i++) {
+                 if (strncmp(namelist[i]->d_name, prefix, prefix_len) == 0) {
+                     strcpy(tag, namelist[i]->d_name + prefix_len); // Extract tag
+                     send(conn_fd, tag, MAX_FILENAME_LEN, 0);
+                 }
+                 free(namelist[i]);
+             }
+             free(namelist);
+             response_sent = true;
         }
     } 
 

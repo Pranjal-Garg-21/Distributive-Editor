@@ -67,7 +67,14 @@ typedef enum {
     CMD_UNDO_FILE,
     CMD_GET_INFO,
     CMD_LIST_USERS,    
-    CMD_EXEC
+    CMD_EXEC,
+    CMD_VIEW_FOLDER,
+    CMD_CREATE_FOLDER,
+    CMD_MOVE_FILE,
+    CMD_CHECKPOINT,      // <-- NEW
+    CMD_VIEW_CHECKPOINT, // <-- NEW
+    CMD_REVERT,          // <-- NEW
+    CMD_LIST_CHECKPOINTS // <-- NEW
 } client_command_t;
 
 // --- Access Level Enum ---
@@ -101,6 +108,8 @@ typedef struct {
 
     char target_username[MAX_USERNAME_LEN];
     access_level_t access_level;
+    char dest_path[MAX_FILENAME_LEN];
+    char checkpoint_tag[50];
 } client_request_t;
 
 // NM sends this back to Client (Generic)
@@ -110,15 +119,17 @@ typedef struct {
     char error_msg[MAX_ERROR_MSG_LEN]; 
     char ss_ip[MAX_IP_LEN];
     int ss_port;
-    int file_count; 
+    int file_count;
+    char storage_filename[MAX_FILENAME_LEN]; 
 } nm_response_t;
 
 // NM sends this for each file in a VIEW list
 typedef struct {
-    char filename[MAX_FILENAME_LEN];
+    char filename[MAX_FILENAME_LEN]; // Logical name (e.g., "folder/doc.txt")
     char owner[MAX_USERNAME_LEN]; 
     char ss_ip[MAX_IP_LEN];
     int ss_port;
+    char storage_filename[MAX_FILENAME_LEN]; // NEW: Physical name (e.g., "doc.txt")
 } nm_file_entry_t;
 
 // --- Structs for INFO command ---
@@ -126,13 +137,14 @@ typedef struct {
 // NM -> Client response for INFO (Header)
 typedef struct {
     response_status_t status;
-    nfs_error_code_t error_code; // NEW
+    nfs_error_code_t error_code;
     char error_msg[MAX_ERROR_MSG_LEN];
     
     char owner[MAX_USERNAME_LEN];
     char ss_ip[MAX_IP_LEN];
     int ss_port;
-    int acl_count; // How many entries to expect
+    int acl_count;
+    char storage_filename[MAX_FILENAME_LEN]; // NEW: Physical name
 } nm_info_response_t;
 
 // NM -> Client, sent acl_count times after header

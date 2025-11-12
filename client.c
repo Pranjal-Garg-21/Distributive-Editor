@@ -82,7 +82,132 @@ bool is_numeric(const char *s) {
 
 // (do_create, do_view, do_read, do_stream, do_write, do_addaccess, 
 //  do_remaccess, do_delete, do_undo, do_info, do_list, do_exec are all UNCHANGED)
+void do_checkpoint(const char* username, const char* filename, const char* tag) {
+    client_request_t req = {0};
+    req.command = CMD_CHECKPOINT;
+    strcpy(req.username, username);
+    strcpy(req.filename, filename);
+    strcpy(req.checkpoint_tag, tag);
 
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if(sock<0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+    close(sock);
+
+    if (res.status == STATUS_OK) printf("Checkpoint '%s' created.\n", tag);
+    else printf("Error: %s\n", res.error_msg);
+}
+
+void do_revert(const char* username, const char* filename, const char* tag) {
+    client_request_t req = {0};
+    req.command = CMD_REVERT;
+    strcpy(req.username, username);
+    strcpy(req.filename, filename);
+    strcpy(req.checkpoint_tag, tag);
+
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if(sock<0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+    close(sock);
+
+    if (res.status == STATUS_OK) printf("File reverted to checkpoint '%s'.\n", tag);
+    else printf("Error: %s\n", res.error_msg);
+}
+
+void do_list_checkpoints(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_LIST_CHECKPOINTS;
+    strcpy(req.username, username);
+    strcpy(req.filename, filename);
+
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if(sock<0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+
+    if (res.status == STATUS_ERROR) {
+        printf("Error: %s\n", res.error_msg);
+    } else {
+        printf("\n--- Checkpoints for %s ---\n", filename);
+        char tag[MAX_FILENAME_LEN];
+        if (res.file_count == 0) printf("(No checkpoints)\n");
+        for(int i=0; i<res.file_count; i++) {
+            recv(sock, tag, MAX_FILENAME_LEN, 0);
+            printf(" - %s\n", tag);
+        }
+        printf("----------------------------\n");
+    }
+    close(sock);
+}
+
+void do_view_checkpoint(const char* username, const char* filename, const char* tag) {
+    // Similar to READ, but asks NM for the checkpoint location
+    client_request_t req = {0};
+    req.command = CMD_VIEW_CHECKPOINT;
+    strcpy(req.username, username);
+    strcpy(req.filename, filename);
+    strcpy(req.checkpoint_tag, tag);
+
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if(sock<0) return;
+    
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+    close(sock);
+
+    if (res.status == STATUS_ERROR) {
+        printf("Error: %s\n", res.error_msg);
+        return;
+    }
+
+    // Connect to SS using the filename provided by NM (which is physical cp name)
+    int ss_sock = connect_to_server(res.ss_ip, res.ss_port);
+    if(ss_sock < 0) return;
+
+    req.command = CMD_READ_FILE; // Tell SS to perform a standard READ
+    strcpy(req.filename, res.storage_filename); // Use the CP filename (file.txt.cp.v1)
+    
+    send(ss_sock, &req, sizeof(client_request_t), 0);
+    
+    ss_response_t header;
+    recv(ss_sock, &header, sizeof(ss_response_t), 0);
+    if (header.status == STATUS_ERROR) {
+        printf("Error reading checkpoint: %s\n", header.error_msg);
+        close(ss_sock);
+        return;
+    }
+
+    printf("\n--- Content of %s (Checkpoint: %s) ---\n", filename, tag);
+    ss_file_data_chunk_t chunk;
+    while(1) {
+        ssize_t n = recv(ss_sock, &chunk, sizeof(chunk), 0);
+        if (n <= 0 || chunk.data_size == 0) break;
+        fwrite(chunk.data, 1, chunk.data_size, stdout);
+    }
+    printf("\n------------------------------------------\n");
+    close(ss_sock);
+}
 // REPLACE the old do_create in client.c with this:
 void do_create(const char* username, const char* filename) {
     client_request_t req = {0};
@@ -176,9 +301,12 @@ void do_view(const char* username, bool view_all, bool view_long) {
             printf("-------------------------------------------------------------------------------------------\n");
         }
         nm_file_entry_t file_entry;
-        for (int i = 0; i < count; i++) {
-            if (recv(nm_sock_fd, &file_entry, sizeof(nm_file_entry_t), 0) != sizeof(nm_file_entry_t)) {
-                perror("recv file entry failed"); break;
+       for (int i = 0; i < count; i++) {
+            int n = recv(nm_sock_fd, &file_entry, sizeof(nm_file_entry_t), 0);
+            if (n <= 0) {
+                if (n < 0) perror("recv file entry failed");
+                // If n == 0, it just means list ended, don't print error
+                break;
             }
             if (req.view_long) {
                 printf("%-12s | %-20s |", file_entry.owner, file_entry.filename);
@@ -186,7 +314,8 @@ void do_view(const char* username, bool view_all, bool view_long) {
                 if (ss_sock_fd < 0) { printf(" (Stats unavailable: SS at %s:%d is down)\n", file_entry.ss_ip, file_entry.ss_port); continue; }
                 client_request_t stats_req = {0};
                 stats_req.command = CMD_GET_STATS;
-                strncpy(stats_req.filename, file_entry.filename, MAX_FILENAME_LEN - 1);
+                // FIX: Use storage_filename for SS request, but keep file_entry.filename for display
+                strncpy(stats_req.filename, file_entry.storage_filename, MAX_FILENAME_LEN - 1);
                 send(ss_sock_fd, &stats_req, sizeof(client_request_t), 0);
                 ss_stats_response_t stats_res;
                 if (recv(ss_sock_fd, &stats_res, sizeof(ss_stats_response_t), 0) != sizeof(ss_stats_response_t)) {
@@ -204,7 +333,77 @@ void do_view(const char* username, bool view_all, bool view_long) {
     printf("-------------------------------------------------------------------------------------------\n");
     close(nm_sock_fd); 
 }
+void do_create_folder(const char* username, const char* foldername) {
+    client_request_t req = {0};
+    req.command = CMD_CREATE_FOLDER;
+    strcpy(req.username, username);
+    strcpy(req.filename, foldername);
 
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if (sock < 0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+    close(sock);
+
+    if (res.status == STATUS_OK) printf("Folder '%s' created.\n", foldername);
+    else printf("Error: %s\n", res.error_msg);
+}
+
+void do_move_file(const char* username, const char* filename, const char* dest_folder) {
+    client_request_t req = {0};
+    req.command = CMD_MOVE_FILE;
+    strcpy(req.username, username);
+    strcpy(req.filename, filename);
+    strcpy(req.dest_path, dest_folder); // Use the new field
+
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if (sock < 0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+    close(sock);
+
+    if (res.status == STATUS_OK) printf("Moved '%s' to '%s'.\n", filename, dest_folder);
+    else printf("Error: %s\n", res.error_msg);
+}
+
+void do_view_folder(const char* username, const char* foldername) {
+    client_request_t req = {0};
+    req.command = CMD_VIEW_FOLDER;
+    strcpy(req.username, username);
+    strcpy(req.filename, foldername);
+
+    int sock = connect_to_server(NM_IP, NM_PORT);
+    if (sock < 0) return;
+
+    message_type_t type = MSG_CLIENT_NM_REQUEST;
+    send(sock, &type, sizeof(type), 0);
+    send(sock, &req, sizeof(req), 0);
+
+    nm_response_t res;
+    recv(sock, &res, sizeof(res), 0);
+
+    if (res.status == STATUS_ERROR) {
+        printf("Error: %s\n", res.error_msg);
+    } else {
+        printf("--- Files in '%s' ---\n", foldername);
+        nm_file_entry_t entry;
+        for(int i=0; i<res.file_count; i++) {
+            recv(sock, &entry, sizeof(entry), 0);
+            printf(" -> %s\n", entry.filename);
+        }
+    }
+    close(sock);
+}
 void do_read(const char* username, const char* filename) {
     client_request_t req = {0};
     req.command = CMD_READ_FILE;
@@ -221,6 +420,7 @@ void do_read(const char* username, const char* filename) {
     }
     close(nm_sock_fd); 
     if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
+    strcpy(req.filename, nm_res.storage_filename);
     int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
     if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
     send(ss_sock_fd, &req, sizeof(client_request_t), 0);
@@ -257,6 +457,7 @@ void do_stream(const char* username, const char* filename) {
     }
     close(nm_sock_fd); 
     if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
+    strcpy(req.filename, nm_res.storage_filename);
     int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
     if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
     req.command = CMD_READ_FILE; 
@@ -319,6 +520,7 @@ void do_write(const char* username, const char* filename, int initial_sentence_n
     }
     close(nm_sock_fd);
     if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
+    strcpy(req.filename, nm_res.storage_filename);
     int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
     if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
     send(ss_sock_fd, &req, sizeof(client_request_t), 0);
@@ -435,6 +637,8 @@ void do_undo(const char* username, const char* filename) {
     }
     close(nm_sock_fd); 
     if (nm_res.status == STATUS_ERROR) { fprintf(stderr, "[Error from Name Server]: %s\n", nm_res.error_msg); return; }
+    // FIX: Use physical storage name for SS operation
+    strcpy(req.filename, nm_res.storage_filename);
     int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
     if (ss_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Storage Server at %s:%d.\n", nm_res.ss_ip, nm_res.ss_port); return; }
     send(ss_sock_fd, &req, sizeof(client_request_t), 0);
@@ -496,7 +700,8 @@ void do_info(const char* username, const char* filename) {
     }
     printf("\n");
     close(nm_sock_fd); // Done with NM
-
+    // FIX: Update filename to physical name for SS stats
+    strncpy(req.filename, nm_res.storage_filename, MAX_FILENAME_LEN - 1);
     // --- STEP 2: Connect to Storage Server for Stats ---
     int ss_sock_fd = connect_to_server(nm_res.ss_ip, nm_res.ss_port);
     if (ss_sock_fd < 0) {
@@ -808,8 +1013,44 @@ int main(int argc, char *argv[]) {
             } else {
                 do_exec(username, filename);
             }
-        }
-        else {
+        }else if (strcmp(command, "CREATEFOLDER") == 0) {
+    char* folder = strtok(NULL, " \n");
+    if (folder) do_create_folder(username, folder);
+    else printf("Usage: CREATEFOLDER <foldername>\n");
+}
+else if (strcmp(command, "MOVE") == 0) {
+    char* file = strtok(NULL, " \n");
+    char* dest = strtok(NULL, " \n");
+    if (file && dest) do_move_file(username, file, dest);
+    else printf("Usage: MOVE <filename> <foldername>\n");
+}
+else if (strcmp(command, "VIEWFOLDER") == 0) {
+    char* folder = strtok(NULL, " \n");
+    if (folder) do_view_folder(username, folder);
+    else printf("Usage: VIEWFOLDER <foldername>\n");
+} else if (strcmp(command, "CHECKPOINT") == 0) {
+            char* filename = strtok(NULL, " \n");
+            char* tag = strtok(NULL, " \n");
+            if (filename && tag) do_checkpoint(username, filename, tag);
+            else printf("Usage: CHECKPOINT <filename> <tag>\n");
+        
+        } else if (strcmp(command, "REVERT") == 0) {
+            char* filename = strtok(NULL, " \n");
+            char* tag = strtok(NULL, " \n");
+            if (filename && tag) do_revert(username, filename, tag);
+            else printf("Usage: REVERT <filename> <tag>\n");
+
+        } else if (strcmp(command, "LISTCHECKPOINTS") == 0) {
+            char* filename = strtok(NULL, " \n");
+            if (filename) do_list_checkpoints(username, filename);
+            else printf("Usage: LISTCHECKPOINTS <filename>\n");
+
+        } else if (strcmp(command, "VIEWCHECKPOINT") == 0) {
+            char* filename = strtok(NULL, " \n");
+            char* tag = strtok(NULL, " \n");
+            if (filename && tag) do_view_checkpoint(username, filename, tag);
+            else printf("Usage: VIEWCHECKPOINT <filename> <tag>\n");
+        } else {
             fprintf(stderr, "Unknown command: '%s'. Type 'help' for commands.\n", command);
         }
     }

@@ -18,3 +18,125 @@
 [2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] REQ: CMD=2, File='file.txt'
 [2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] ACK: CMD=DELETE_FILE, Status=OK, File=file.txt
 [2025-11-10 20:30:49] [INFO] [127.0.0.1:47646] [alice] Closing connection.
+[2025-11-12 18:28:46] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-12 18:28:46] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-12 18:28:46] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-12 18:28:46] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-12 18:29:29] [INFO] [127.0.0.1:41962] [N/A] Client connection accepted.
+[2025-11-12 18:29:29] [INFO] [127.0.0.1:41962] [pranjal] REQ: CMD=0, File='work/project.txt'
+[2025-11-12 18:29:29] [ERROR] [127.0.0.1:41962] [pranjal] NAK: CMD=CREATE_FILE, Status=ERROR, File=work/project.txt, Msg=File creation failed on Storage Server
+[2025-11-12 18:29:29] [INFO] [127.0.0.1:41962] [pranjal] Closing connection.
+[2025-11-12 20:57:02] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-12 20:57:02] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-12 20:57:02] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-12 20:57:02] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-12 20:58:06] [INFO] [127.0.0.1:58320] [N/A] Client connection accepted.
+[2025-11-12 20:58:06] [INFO] [127.0.0.1:58320] [pranjal] REQ: CMD=0, File='personal_diary.txt'
+[2025-11-12 20:58:06] [INFO] [127.0.0.1:58320] [pranjal] ACK: CMD=CREATE_FILE, Status=OK, File=personal_diary.txt
+[2025-11-12 20:58:06] [INFO] [127.0.0.1:58320] [pranjal] Closing connection.
+[2025-11-12 21:11:58] [INFO] [127.0.0.1:47524] [N/A] Client connection accepted.
+[2025-11-12 21:11:58] [INFO] [127.0.0.1:47524] [pranjal] REQ: CMD=0, File='work_project.txt'
+[2025-11-12 21:11:58] [INFO] [127.0.0.1:47524] [pranjal] ACK: CMD=CREATE_FILE, Status=OK, File=work_project.txt
+[2025-11-12 21:11:58] [INFO] [127.0.0.1:47524] [pranjal] Closing connection.
+[2025-11-12 21:12:15] [INFO] [127.0.0.1:37624] [N/A] Client connection accepted.
+[2025-11-12 21:12:15] [INFO] [127.0.0.1:37624] [pranjal] REQ: CMD=5, File='work_project.txt'
+[2025-11-12 21:12:32] [INFO] [127.0.0.1:37624] [pranjal] ACK: CMD=WRITE_FILE, Status=OK, File=work_project.txt, Sentences=1
+[2025-11-12 21:12:32] [INFO] [127.0.0.1:37624] [pranjal] Closing connection.
+[2025-11-12 21:12:50] [INFO] [127.0.0.1:49188] [N/A] Client connection accepted.
+[2025-11-12 21:12:50] [INFO] [127.0.0.1:49188] [pranjal] REQ: CMD=3, File='work_project.txt'
+[2025-11-12 21:12:50] [INFO] [127.0.0.1:49188] [pranjal] ACK: CMD=READ_FILE, Status=OK, File=work_project.txt
+[2025-11-12 21:12:50] [INFO] [127.0.0.1:49188] [pranjal] Closing connection.
+[2025-11-12 21:13:01] [INFO] [127.0.0.1:40066] [N/A] Client connection accepted.
+[2025-11-12 21:13:01] [INFO] [127.0.0.1:40066] [pranjal] REQ: CMD=3, File='work_project.txt'
+[2025-11-12 21:13:01] [INFO] [127.0.0.1:40066] [pranjal] ACK: CMD=READ_FILE, Status=OK, File=work_project.txt
+[2025-11-12 21:13:01] [INFO] [127.0.0.1:40066] [pranjal] Closing connection.
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41314] [N/A] Client connection accepted.
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41314] [] REQ: CMD=4, File='personal_diary.txt'
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41314] [] ACK: CMD=GET_STATS, Status=OK, File=personal_diary.txt
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41314] [] Closing connection.
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41320] [N/A] Client connection accepted.
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41320] [] REQ: CMD=4, File='work_project.txt'
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41320] [] ACK: CMD=GET_STATS, Status=OK, File=work_project.txt
+[2025-11-12 21:13:24] [INFO] [127.0.0.1:41320] [] Closing connection.
+[2025-11-12 21:13:51] [INFO] [127.0.0.1:33286] [N/A] Client connection accepted.
+[2025-11-12 21:13:51] [INFO] [127.0.0.1:33286] [sarah] REQ: CMD=0, File='sarah.txt'
+[2025-11-12 21:13:51] [INFO] [127.0.0.1:33286] [sarah] ACK: CMD=CREATE_FILE, Status=OK, File=sarah.txt
+[2025-11-12 21:13:51] [INFO] [127.0.0.1:33286] [sarah] Closing connection.
+[2025-11-12 21:14:27] [INFO] [127.0.0.1:55680] [N/A] Client connection accepted.
+[2025-11-12 21:14:27] [INFO] [127.0.0.1:55680] [sarah] REQ: CMD=0, File='sarah_hi.txt'
+[2025-11-12 21:14:27] [INFO] [127.0.0.1:55680] [sarah] ACK: CMD=CREATE_FILE, Status=OK, File=sarah_hi.txt
+[2025-11-12 21:14:27] [INFO] [127.0.0.1:55680] [sarah] Closing connection.
+[2025-11-12 21:15:11] [INFO] [127.0.0.1:48628] [N/A] Client connection accepted.
+[2025-11-12 21:15:11] [INFO] [127.0.0.1:48628] [pranjal] REQ: CMD=3, File='sarah_hi.txt'
+[2025-11-12 21:15:11] [INFO] [127.0.0.1:48628] [pranjal] ACK: CMD=READ_FILE, Status=OK, File=sarah_hi.txt
+[2025-11-12 21:15:11] [INFO] [127.0.0.1:48628] [pranjal] Closing connection.
+[2025-11-12 21:15:22] [INFO] [127.0.0.1:47666] [N/A] Client connection accepted.
+[2025-11-12 21:15:22] [INFO] [127.0.0.1:47666] [pranjal] REQ: CMD=5, File='sarah_hi.txt'
+[2025-11-12 21:15:49] [INFO] [127.0.0.1:47666] [pranjal] ACK: CMD=WRITE_FILE, Status=OK, File=sarah_hi.txt, Sentences=1
+[2025-11-12 21:15:49] [INFO] [127.0.0.1:47666] [pranjal] Closing connection.
+[2025-11-12 21:16:07] [INFO] [127.0.0.1:47872] [N/A] Client connection accepted.
+[2025-11-12 21:16:07] [INFO] [127.0.0.1:47872] [pranjal] REQ: CMD=3, File='sarah_hi.txt'
+[2025-11-12 21:16:07] [INFO] [127.0.0.1:47872] [pranjal] ACK: CMD=READ_FILE, Status=OK, File=sarah_hi.txt
+[2025-11-12 21:16:07] [INFO] [127.0.0.1:47872] [pranjal] Closing connection.
+[2025-11-12 21:16:21] [INFO] [127.0.0.1:50596] [N/A] Client connection accepted.
+[2025-11-12 21:16:21] [INFO] [127.0.0.1:50596] [sarah] REQ: CMD=3, File='sarah_hi.txt'
+[2025-11-12 21:16:21] [INFO] [127.0.0.1:50596] [sarah] ACK: CMD=READ_FILE, Status=OK, File=sarah_hi.txt
+[2025-11-12 21:16:21] [INFO] [127.0.0.1:50596] [sarah] Closing connection.
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Reporting existing file: personal_diary.txt
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Reporting existing file: work_project.txt
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Reporting existing file: sarah.txt
+[2025-11-12 21:42:36] [INFO] [N/A:0] [SYS] Reporting existing file: sarah_hi.txt
+[2025-11-12 21:42:36] [ERROR] [N/A:0] [SYS] SS server bind failed: Address already in use
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Reporting existing file: personal_diary.txt
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Reporting existing file: work_project.txt
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Reporting existing file: sarah.txt
+[2025-11-12 21:42:46] [INFO] [N/A:0] [SYS] Reporting existing file: sarah_hi.txt
+[2025-11-12 21:42:46] [ERROR] [N/A:0] [SYS] SS server bind failed: Address already in use
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Reporting existing file: personal_diary.txt
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Reporting existing file: work_project.txt
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Reporting existing file: sarah.txt
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Reporting existing file: sarah_hi.txt
+[2025-11-12 21:44:34] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-12 21:45:02] [INFO] [127.0.0.1:47596] [N/A] Client connection accepted.
+[2025-11-12 21:45:02] [INFO] [127.0.0.1:47596] [pranju] REQ: CMD=0, File='mywork.txt'
+[2025-11-12 21:45:02] [INFO] [127.0.0.1:47596] [pranju] ACK: CMD=CREATE_FILE, Status=OK, File=mywork.txt
+[2025-11-12 21:45:02] [INFO] [127.0.0.1:47596] [pranju] Closing connection.
+[2025-11-12 21:45:10] [INFO] [127.0.0.1:47604] [N/A] Client connection accepted.
+[2025-11-12 21:45:10] [INFO] [127.0.0.1:47604] [pranju] REQ: CMD=5, File='mywork.txt'
+[2025-11-12 21:45:34] [INFO] [127.0.0.1:47604] [pranju] ACK: CMD=WRITE_FILE, Status=OK, File=mywork.txt, Sentences=1
+[2025-11-12 21:45:34] [INFO] [127.0.0.1:47604] [pranju] Closing connection.
+[2025-11-12 21:45:41] [INFO] [127.0.0.1:38080] [N/A] Client connection accepted.
+[2025-11-12 21:45:41] [INFO] [127.0.0.1:38080] [pranju] REQ: CMD=16, File='mywork.txt'
+[2025-11-12 21:45:41] [INFO] [127.0.0.1:38080] [pranju] Closing connection.
+[2025-11-12 21:45:54] [INFO] [127.0.0.1:60438] [N/A] Client connection accepted.
+[2025-11-12 21:45:54] [INFO] [127.0.0.1:60438] [pranju] REQ: CMD=5, File='mywork.txt'
+[2025-11-12 21:46:10] [INFO] [127.0.0.1:60438] [pranju] ACK: CMD=WRITE_FILE, Status=OK, File=mywork.txt, Sentences=2
+[2025-11-12 21:46:10] [INFO] [127.0.0.1:60438] [pranju] Closing connection.
+[2025-11-12 21:46:23] [INFO] [127.0.0.1:43986] [N/A] Client connection accepted.
+[2025-11-12 21:46:23] [INFO] [127.0.0.1:43986] [pranju] REQ: CMD=3, File='mywork.txt.cp.v1'
+[2025-11-12 21:46:23] [INFO] [127.0.0.1:43986] [pranju] ACK: CMD=READ_FILE, Status=OK, File=mywork.txt.cp.v1
+[2025-11-12 21:46:23] [INFO] [127.0.0.1:43986] [pranju] Closing connection.
+[2025-11-12 21:46:35] [INFO] [127.0.0.1:43166] [N/A] Client connection accepted.
+[2025-11-12 21:46:35] [INFO] [127.0.0.1:43166] [pranju] REQ: CMD=19, File='mywork.txt'
+[2025-11-12 21:46:35] [INFO] [127.0.0.1:43166] [pranju] Closing connection.
+[2025-11-12 21:46:53] [INFO] [127.0.0.1:43364] [N/A] Client connection accepted.
+[2025-11-12 21:46:53] [INFO] [127.0.0.1:43364] [pranju] REQ: CMD=16, File='mywork.txt'
+[2025-11-12 21:46:53] [INFO] [127.0.0.1:43364] [pranju] Closing connection.
+[2025-11-12 21:47:15] [INFO] [127.0.0.1:49188] [N/A] Client connection accepted.
+[2025-11-12 21:47:15] [INFO] [127.0.0.1:49188] [pranju] REQ: CMD=18, File='mywork.txt'
+[2025-11-12 21:47:15] [INFO] [127.0.0.1:49188] [pranju] Closing connection.
+[2025-11-12 21:47:22] [INFO] [127.0.0.1:58104] [N/A] Client connection accepted.
+[2025-11-12 21:47:22] [INFO] [127.0.0.1:58104] [pranju] REQ: CMD=3, File='mywork.txt'
+[2025-11-12 21:47:22] [INFO] [127.0.0.1:58104] [pranju] ACK: CMD=READ_FILE, Status=OK, File=mywork.txt
+[2025-11-12 21:47:22] [INFO] [127.0.0.1:58104] [pranju] Closing connection.
