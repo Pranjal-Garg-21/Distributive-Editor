@@ -11,7 +11,7 @@
 
 #define NM_IP "127.0.0.1"
 // NM_PORT is from common.h
-
+char g_nm_ip[32];
 /**
  * @brief Prints the available commands in the interactive shell.
  */
@@ -89,7 +89,7 @@ void do_checkpoint(const char* username, const char* filename, const char* tag) 
     strcpy(req.filename, filename);
     strcpy(req.checkpoint_tag, tag);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if(sock<0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -111,7 +111,7 @@ void do_revert(const char* username, const char* filename, const char* tag) {
     strcpy(req.filename, filename);
     strcpy(req.checkpoint_tag, tag);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if(sock<0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -132,7 +132,7 @@ void do_list_checkpoints(const char* username, const char* filename) {
     strcpy(req.username, username);
     strcpy(req.filename, filename);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if(sock<0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -165,7 +165,7 @@ void do_view_checkpoint(const char* username, const char* filename, const char* 
     strcpy(req.filename, filename);
     strcpy(req.checkpoint_tag, tag);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if(sock<0) return;
     
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -215,7 +215,7 @@ void do_create(const char* username, const char* filename) {
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
 
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { 
         fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
         return; 
@@ -249,7 +249,7 @@ void do_delete(const char* username, const char* filename) {
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
     
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { 
         fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
         return; 
@@ -282,7 +282,7 @@ void do_view(const char* username, bool view_all, bool view_long) {
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     req.view_all = view_all;
     req.view_long = view_long;
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -339,7 +339,7 @@ void do_create_folder(const char* username, const char* foldername) {
     strcpy(req.username, username);
     strcpy(req.filename, foldername);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if (sock < 0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -361,7 +361,7 @@ void do_move_file(const char* username, const char* filename, const char* dest_f
     strcpy(req.filename, filename);
     strcpy(req.dest_path, dest_folder); // Use the new field
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if (sock < 0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -382,7 +382,7 @@ void do_view_folder(const char* username, const char* foldername) {
     strcpy(req.username, username);
     strcpy(req.filename, foldername);
 
-    int sock = connect_to_server(NM_IP, NM_PORT);
+    int sock = connect_to_server(g_nm_ip, NM_PORT);
     if (sock < 0) return;
 
     message_type_t type = MSG_CLIENT_NM_REQUEST;
@@ -409,7 +409,7 @@ void do_read(const char* username, const char* filename) {
     req.command = CMD_READ_FILE;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -446,7 +446,7 @@ void do_stream(const char* username, const char* filename) {
     req.command = CMD_STREAM_FILE; 
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -509,7 +509,7 @@ void do_write(const char* username, const char* filename, int initial_sentence_n
     req.command = CMD_WRITE_FILE;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -587,7 +587,7 @@ void do_addaccess(const char* username, const char* filename, const char* target
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
     strncpy(req.target_username, target_user, MAX_USERNAME_LEN - 1);
     req.access_level = level;
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -607,7 +607,7 @@ void do_remaccess(const char* username, const char* filename, const char* target
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
     strncpy(req.target_username, target_user, MAX_USERNAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -626,7 +626,7 @@ void do_undo(const char* username, const char* filename) {
     req.command = CMD_UNDO_FILE;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) { fprintf(stderr, "Error: Could not connect to Name Server.\n"); return; }
     message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
     send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
@@ -658,7 +658,7 @@ void do_info(const char* username, const char* filename) {
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
 
     // --- STEP 1: Connect to Name Server for ACL/Owner/Location ---
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) {
         fprintf(stderr, "Error: Could not connect to Name Server.\n");
         return;
@@ -752,7 +752,7 @@ void do_list(const char* username) {
     req.command = CMD_LIST_USERS;
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
 
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) {
         fprintf(stderr, "Error: Could not connect to Name Server.\n");
         return;
@@ -807,7 +807,7 @@ void do_exec(const char* username, const char* filename) {
     strncpy(req.username, username, MAX_USERNAME_LEN - 1);
     strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
 
-    int nm_sock_fd = connect_to_server(NM_IP, NM_PORT);
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
     if (nm_sock_fd < 0) {
         fprintf(stderr, "Error: Could not connect to Name Server.\n");
         return;

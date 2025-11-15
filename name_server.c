@@ -1921,7 +1921,10 @@ int main() {
 
     printf("Name Server listening on port %d...\n", NM_PORT);
     server_log(LOG_INFO, "N/A", 0, "SYS", "Name Server listening on port %d", NM_PORT); // <-- ADD THIS
-
+    printf("------------------------------------------------\n");
+    printf("Run 'hostname -I' (Linux/Mac) or 'ipconfig' (Windows)\n");
+    printf("to find this machine's IP address to give to Clients/SS.\n");
+    printf("------------------------------------------------\n");
     while (1) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);

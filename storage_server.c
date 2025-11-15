@@ -17,9 +17,9 @@
 #include <stdarg.h>   // <-- ADDED THIS
 
 
-#define MY_IP "127.0.0.1"
-#define MY_CLIENT_PORT 9090 
-#define NM_IP "127.0.0.1"
+// #define MY_IP "127.0.0.1"
+// #define MY_CLIENT_PORT 9090 
+// #define NM_IP "127.0.0.1"
 
 
 // --- (All helper functions and handle_client_connection remain UNCHANGED) ---
@@ -804,15 +804,14 @@ int main(int argc, char *argv[]) {
     int sock_fd;
     struct sockaddr_in nm_addr;
     ss_registration_t reg_data;
-
-    int my_client_port = MY_CLIENT_PORT;
-    if (argc > 1) {
-        my_client_port = atoi(argv[1]);
-        if (my_client_port <= 0) {
-            fprintf(stderr, "Invalid port number. Using default %d\n", MY_CLIENT_PORT);
-            my_client_port = MY_CLIENT_PORT;
-        }
+    if (argc < 4) {
+        fprintf(stderr, "Usage: %s <NM_IP> <SS_IP> <SS_PORT>\n", argv[0]);
+        fprintf(stderr, "Example: %s 192.168.1.5 192.168.1.6 9090\n", argv[0]);
+        exit(EXIT_FAILURE);
     }
+   char* nm_ip_arg = argv[1];       // The Name Server's IP
+    char* my_ip_arg = argv[2];       // This Laptop's IP
+    int my_client_port = atoi(argv[3]); // This Server's Port
 
     // --- NEW: Init Logger ---
     char log_filename[100];
@@ -831,13 +830,13 @@ int main(int argc, char *argv[]) {
     memset(&nm_addr, 0, sizeof(nm_addr));
     nm_addr.sin_family = AF_INET;
     nm_addr.sin_port = htons(NM_PORT);
-    if (inet_pton(AF_INET, NM_IP, &nm_addr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, nm_ip_arg, &nm_addr.sin_addr) <= 0) {
         perror("[Main] invalid Name Server IP address");
         server_log(LOG_ERROR, "N/A", 0, "SYS", "invalid Name Server IP address"); // <-- ADD THIS
         log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
-    printf("Attempting to connect to Name Server at %s:%d...\n", NM_IP, NM_PORT);
+    printf("Attempting to connect to Name Server at %s:%d...\n", nm_ip_arg, my_client_port);
     if (connect(sock_fd, (struct sockaddr*)&nm_addr, sizeof(nm_addr)) < 0) {
         perror("[Main] connection to Name Server failed");
         server_log(LOG_ERROR, "N/A", 0, "SYS", "connection to Name Server failed: %s", strerror(errno)); // <-- ADD THIS
@@ -845,7 +844,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     printf("Connected to Name Server!\n");
-    server_log(LOG_INFO, "N/A", 0, "SYS", "Connected to Name Server at %s:%d", NM_IP, NM_PORT); // <-- ADD THIS
+    server_log(LOG_INFO, "N/A", 0, "SYS", "Connected to Name Server at %s:%d", nm_ip_arg, my_client_port); // <-- ADD THIS
 
     // --- STEP 1: Send registration message ---
     message_type_t msg_type = MSG_SS_REGISTER;
@@ -856,7 +855,7 @@ int main(int argc, char *argv[]) {
         log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE);
     }
-    strcpy(reg_data.ss_ip, MY_IP);
+    strcpy(reg_data.ss_ip, my_ip_arg);
     reg_data.client_port = my_client_port; 
     if (send(sock_fd, &reg_data, sizeof(reg_data), 0) < 0) {
         perror("[Main] send registration data failed");
