@@ -38,6 +38,7 @@ void print_help() {
  * @brief Connects to a server at the given IP and port.
  */
 int connect_to_server(char* ip, int port) {
+    printf("[DEBUG] Attempting to connect -> IP: '%s', Port: %d\n", ip, port);
     int sock_fd;
     struct sockaddr_in serv_addr;
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -849,12 +850,37 @@ void do_exec(const char* username, const char* filename) {
     close(nm_sock_fd);
 }
 
+// Helper to remove invisible spaces/newlines from a string
+void trim_whitespace(char *str) {
+    char *end;
 
+    // Trim leading space
+    while(isspace((unsigned char)*str)) str++;
+
+    if(*str == 0) return; // All spaces?
+
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while(end > str && isspace((unsigned char)*end)) end--;
+
+    // Write new null terminator
+    *(end+1) = 0;
+}
 // =================================================================
 // --- Main Interactive Loop ---
 // =================================================================
 
 int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <Name_Server_IP>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+    
+    // ENSURE THIS LINE EXISTS AND COPIES TO THE GLOBAL VARIABLE
+    strncpy(g_nm_ip, argv[1], 31); 
+    g_nm_ip[31] = '\0';
+    // ------------------------
+    trim_whitespace(g_nm_ip);
     char username[MAX_USERNAME_LEN];
     char input_line[1024];
     

@@ -1,0 +1,5 @@
+[2025-11-15 12:34:31] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 8080) ---
+[2025-11-15 12:34:31] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.160.190.113:8080
+[2025-11-15 12:34:31] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:34:31] [ERROR] [N/A:0] [SYS] SS server bind failed: Address already in use
+[12:27:11] [INFO] [SYS:0] [SYS] --- Log Shutdown ---

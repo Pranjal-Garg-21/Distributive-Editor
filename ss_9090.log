@@ -1,0 +1,8 @@
+[2025-11-15 12:35:18] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-15 12:35:18] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.160.190.113:9090
+[2025-11-15 12:35:18] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:35:18] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.160.190.113:9090
+[2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090

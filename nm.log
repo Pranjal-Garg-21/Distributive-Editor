@@ -199,3 +199,23 @@
 [2025-11-12 21:47:22] [INFO] [127.0.0.1:53118] [pranju] REQ: CMD=3, File='mywork.txt', TargetUser=''
 [2025-11-12 21:47:22] [INFO] [127.0.0.1:53118] [pranju] ACK: CMD=3, Status=OK
 [2025-11-12 21:47:22] [INFO] [127.0.0.1:53118] [N/A] Closing connection.
+[2025-11-15 12:28:55] [INFO] [N/A:0] [SYS] --- Name Server Starting ---
+[2025-11-15 12:28:55] [INFO] [N/A:0] [SYS] Name Server listening on port 8080
+[2025-11-15 12:34:31] [INFO] [10.160.190.113:36316] [N/A] Connection accepted.
+[2025-11-15 12:34:31] [INFO] [10.160.190.113:36316] [SS] Registered new Storage Server: 10.160.190.113:8080 (Assigned SS#0)
+[2025-11-15 12:34:31] [INFO] [10.160.190.113:36316] [N/A] Closing connection.
+[2025-11-15 12:35:18] [INFO] [10.160.190.113:46076] [N/A] Connection accepted.
+[2025-11-15 12:35:18] [INFO] [10.160.190.113:46076] [SS] Registered new Storage Server: 10.160.190.113:9090 (Assigned SS#1)
+[2025-11-15 12:35:18] [INFO] [10.160.190.113:46076] [N/A] Closing connection.
+[2025-11-15 12:51:07] [INFO] [10.160.190.113:52730] [N/A] Connection accepted.
+[2025-11-15 12:51:07] [INFO] [10.160.190.113:52730] [SS] Re-registered Storage Server: 10.160.190.113:9090 (SS#1)
+[2025-11-15 12:51:07] [INFO] [10.160.190.113:52730] [N/A] Closing connection.
+[2025-11-15 12:58:01] [INFO] [10.160.190.85:56080] [N/A] Connection accepted.
+[2025-11-15 12:58:01] [INFO] [10.160.190.85:56080] [SS] Registered new Storage Server: 10.160.190.85:9090 (Assigned SS#2)
+[2025-11-15 12:58:01] [INFO] [10.160.190.85:56080] [N/A] Closing connection.
+[2025-11-15 13:06:15] [INFO] [10.160.190.113:48048] [N/A] Connection accepted.
+[2025-11-15 13:06:15] [INFO] [10.160.190.113:48048] [pranjal] REQ: CMD=0, File='file.txt', TargetUser=''
+[2025-11-15 13:06:15] [INFO] [10.160.190.113:48062] [N/A] Connection accepted.
+[2025-11-15 13:06:15] [INFO] [10.160.190.113:48062] [SS] Registered new Storage Server: pranjal:0 (Assigned SS#3)
+[2025-11-15 13:10:43] [INFO] [10.160.190.113:36770] [N/A] Connection accepted.
+[2025-11-15 13:10:43] [INFO] [10.160.190.113:36770] [pranjal] REQ: CMD=0, File='file.txt', TargetUser=''
