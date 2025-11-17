@@ -1,0 +1,38 @@
+[2025-11-15 12:40:20] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:40:20] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:43:24] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:43:24] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:44:52] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:44:52] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:46:50] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:46:50] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-15 12:46:50] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:46:50] [ERROR] [N/A:0] [SYS] SS server bind failed: Permission denied
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:48:19] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:48:19] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-15 12:48:19] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:48:19] [ERROR] [N/A:0] [SYS] SS server bind failed: Permission denied
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:48:46] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:48:46] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-15 12:48:46] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:48:46] [ERROR] [N/A:0] [SYS] SS server bind failed: Permission denied
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:48:56] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:48:56] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:49:59] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:49:59] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:50:51] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:50:51] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection refused
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-15 12:53:42] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 10) ---
+[2025-11-15 12:53:42] [INFO] [N/A:0] [SYS] Connected to Name Server at 127.0.0.1:8080
+[2025-11-15 12:53:42] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-15 12:53:42] [ERROR] [N/A:0] [SYS] SS server bind failed: Permission denied
+[21:42:25] [INFO] [SYS:0] [SYS] --- Log Shutdown ---

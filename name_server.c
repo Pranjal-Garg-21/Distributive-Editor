@@ -52,6 +52,8 @@ static void cache_invalidate(const char* filename);
 bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level);
 // --- NEW CACHE DEFINITIONS ---
 
+int g_last_used_ss_idx = -1; // Keeps track of the last SS assigned
+
 // An entry in our LRU cache
 typedef struct cache_entry_s {
     char filename[MAX_FILENAME_LEN]; // The key
@@ -636,14 +638,29 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
     char ss_ip[MAX_IP_LEN];
     int ss_port;
 
+    
     pthread_rwlock_rdlock(&server_list_rwlock); 
-    for (int i = 0; i < server_count; i++) {
-        if (server_list[i].active) {
-            assigned_ss_index = i;
-            strcpy(ss_ip, server_list[assigned_ss_index].ip);
-            ss_port = server_list[assigned_ss_index].client_port;
-            break;
-        }
+    if (server_count > 0) {
+        // Start searching from the next index in the circle
+        int start_index = (g_last_used_ss_idx + 1) % server_count;
+        int current = start_index;
+
+        // Loop at most server_count times to find an active server
+        do {
+            if (server_list[current].active) {
+                assigned_ss_index = current;
+                
+                // Update the global tracker
+                // (Note: Technically needs a write lock or atomic, but for simple LB this is often acceptable)
+                g_last_used_ss_idx = current; 
+                
+                strcpy(ss_ip, server_list[assigned_ss_index].ip);
+                ss_port = server_list[assigned_ss_index].client_port;
+                break;
+            }
+            // Move to next server, wrapping around
+            current = (current + 1) % server_count;
+        } while (current != start_index);
     }
     pthread_rwlock_unlock(&server_list_rwlock); 
 

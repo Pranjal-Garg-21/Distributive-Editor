@@ -6,3 +6,39 @@
 [2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.160.190.113:9090
 [2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
 [2025-11-15 12:51:07] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-17 17:25:43] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-17 17:25:44] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.147.222.113:9090
+[2025-11-17 17:25:44] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-17 17:25:44] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-17 17:31:26] [INFO] [10.147.222.113:35364] [N/A] Client connection accepted.
+[2025-11-17 17:31:26] [INFO] [10.147.222.113:35364] [alhj] REQ: CMD=0, File='X.TXT'
+[2025-11-17 17:31:26] [INFO] [10.147.222.113:35364] [alhj] ACK: CMD=CREATE_FILE, Status=OK, File=X.TXT
+[2025-11-17 17:31:26] [INFO] [10.147.222.113:35364] [alhj] Closing connection.
+[2025-11-17 17:31:40] [INFO] [10.147.222.113:55670] [N/A] Client connection accepted.
+[2025-11-17 17:31:40] [INFO] [10.147.222.113:55670] [alice] REQ: CMD=0, File='hhh.txt'
+[2025-11-17 17:31:40] [INFO] [10.147.222.113:55670] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=hhh.txt
+[2025-11-17 17:31:40] [INFO] [10.147.222.113:55670] [alice] Closing connection.
+[2025-11-17 17:37:07] [INFO] [10.147.222.113:60940] [N/A] Client connection accepted.
+[2025-11-17 17:37:07] [INFO] [10.147.222.113:60940] [alhj] REQ: CMD=0, File='hi.txt'
+[2025-11-17 17:37:07] [INFO] [10.147.222.113:60940] [alhj] ACK: CMD=CREATE_FILE, Status=OK, File=hi.txt
+[2025-11-17 17:37:07] [INFO] [10.147.222.113:60940] [alhj] Closing connection.
+[2025-11-17 17:37:17] [INFO] [10.147.222.113:52536] [N/A] Client connection accepted.
+[2025-11-17 17:37:17] [INFO] [10.147.222.113:52536] [alhj] REQ: CMD=5, File='hi.txt'
+[2025-11-17 17:37:32] [INFO] [10.147.222.113:52536] [alhj] ACK: CMD=WRITE_FILE, Status=OK, File=hi.txt, Sentences=1
+[2025-11-17 17:37:32] [INFO] [10.147.222.113:52536] [alhj] Closing connection.
+[2025-11-17 17:38:38] [INFO] [10.147.222.113:52502] [N/A] Client connection accepted.
+[2025-11-17 17:38:38] [INFO] [10.147.222.113:52502] [alice] REQ: CMD=0, File='docs_notes.txt'
+[2025-11-17 17:38:38] [INFO] [10.147.222.113:52502] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=docs_notes.txt
+[2025-11-17 17:38:38] [INFO] [10.147.222.113:52502] [alice] Closing connection.
+[2025-11-17 17:39:03] [INFO] [10.147.222.85:59016] [N/A] Client connection accepted.
+[2025-11-17 17:39:03] [INFO] [10.147.222.85:59016] [alice] REQ: CMD=3, File='hi.txt'
+[2025-11-17 17:39:03] [INFO] [10.147.222.85:59016] [alice] ACK: CMD=READ_FILE, Status=OK, File=hi.txt
+[2025-11-17 17:39:03] [INFO] [10.147.222.85:59016] [alice] Closing connection.
+[2025-11-17 17:44:02] [INFO] [10.147.222.113:43300] [N/A] Client connection accepted.
+[2025-11-17 17:44:02] [INFO] [10.147.222.113:43300] [alhj] REQ: CMD=3, File='hi.txt'
+[2025-11-17 17:44:02] [INFO] [10.147.222.113:43300] [alhj] ACK: CMD=READ_FILE, Status=OK, File=hi.txt
+[2025-11-17 17:44:02] [INFO] [10.147.222.113:43300] [alhj] Closing connection.
+[2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [N/A] Client connection accepted.
+[2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] REQ: CMD=3, File='hi.txt'
+[2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] ACK: CMD=READ_FILE, Status=OK, File=hi.txt
+[2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] Closing connection.
