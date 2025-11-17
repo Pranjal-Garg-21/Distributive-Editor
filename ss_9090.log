@@ -42,3 +42,14 @@
 [2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] REQ: CMD=3, File='hi.txt'
 [2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] ACK: CMD=READ_FILE, Status=OK, File=hi.txt
 [2025-11-17 17:44:56] [INFO] [10.147.222.85:56850] [alice] Closing connection.
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Connected to Name Server at 192.168.1.12:9090
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Reporting existing file: hi.txt
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Reporting existing file: docs_notes.txt
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Reporting existing file: hhh.txt
+[2025-11-17 22:43:20] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [N/A] Client connection accepted.
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] REQ: CMD=0, File='a.txt'
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=a.txt
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] Closing connection.

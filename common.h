@@ -23,8 +23,13 @@ typedef enum {
     MSG_SS_REGISTER,
     MSG_SS_FILE_LIST_ENTRY, 
     MSG_SS_FILE_LIST_END,   
-    MSG_CLIENT_NM_REQUEST 
+    MSG_CLIENT_NM_REQUEST,
+    MSG_SS_UPDATE_NOTIFY
 } message_type_t;
+
+typedef struct {
+    char service_name[MAX_FILENAME_LEN]; // The physical filename on disk
+} ss_notify_arg_t;
 
 // --- General Status Codes ---
 typedef enum {
@@ -74,7 +79,8 @@ typedef enum {
     CMD_CHECKPOINT,      // <-- NEW
     CMD_VIEW_CHECKPOINT, // <-- NEW
     CMD_REVERT,          // <-- NEW
-    CMD_LIST_CHECKPOINTS // <-- NEW
+    CMD_LIST_CHECKPOINTS, // <-- NEW
+    CMD_REPLICATE
 } client_command_t;
 
 // --- Access Level Enum ---

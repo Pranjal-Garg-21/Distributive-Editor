@@ -1,0 +1,11 @@
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9091) ---
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Connected to Name Server at 192.168.1.12:9091
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Reporting existing file: hi.txt
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Reporting existing file: docs_notes.txt
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Reporting existing file: hhh.txt
+[2025-11-17 22:43:48] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9091
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:49380] [N/A] Client connection accepted.
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:49380] [alice] REQ: CMD=0, File='b.txt'
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:49380] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=b.txt
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:49380] [alice] Closing connection.

@@ -219,3 +219,30 @@
 [2025-11-15 13:06:15] [INFO] [10.160.190.113:48062] [SS] Registered new Storage Server: pranjal:0 (Assigned SS#3)
 [2025-11-15 13:10:43] [INFO] [10.160.190.113:36770] [N/A] Connection accepted.
 [2025-11-15 13:10:43] [INFO] [10.160.190.113:36770] [pranjal] REQ: CMD=0, File='file.txt', TargetUser=''
+[2025-11-17 22:42:43] [INFO] [N/A:0] [SYS] --- Name Server Starting ---
+[2025-11-17 22:42:43] [INFO] [N/A:0] [SYS] Name Server listening on port 8080
+[2025-11-17 22:43:20] [INFO] [192.168.1.12:55054] [N/A] Connection accepted.
+[2025-11-17 22:43:20] [INFO] [192.168.1.12:55054] [SS] Registered new Storage Server: 192.168.1.12:9090 (Assigned SS#0)
+[2025-11-17 22:43:20] [WARN] [192.168.1.12:55054] [SS] [Sync] Found ORPHAN file 'hi.txt' on SS#0. Metadata not created.
+[2025-11-17 22:43:20] [WARN] [192.168.1.12:55054] [SS] [Sync] Found ORPHAN file 'docs_notes.txt' on SS#0. Metadata not created.
+[2025-11-17 22:43:20] [WARN] [192.168.1.12:55054] [SS] [Sync] Found ORPHAN file 'hhh.txt' on SS#0. Metadata not created.
+[2025-11-17 22:43:20] [INFO] [192.168.1.12:55054] [N/A] Closing connection.
+[2025-11-17 22:43:48] [INFO] [192.168.1.12:55860] [N/A] Connection accepted.
+[2025-11-17 22:43:48] [INFO] [192.168.1.12:55860] [SS] Registered new Storage Server: 192.168.1.12:9091 (Assigned SS#1)
+[2025-11-17 22:43:48] [WARN] [192.168.1.12:55860] [SS] [Sync] Found ORPHAN file 'hi.txt' on SS#1. Metadata not created.
+[2025-11-17 22:43:48] [WARN] [192.168.1.12:55860] [SS] [Sync] Found ORPHAN file 'docs_notes.txt' on SS#1. Metadata not created.
+[2025-11-17 22:43:48] [WARN] [192.168.1.12:55860] [SS] [Sync] Found ORPHAN file 'hhh.txt' on SS#1. Metadata not created.
+[2025-11-17 22:43:48] [INFO] [192.168.1.12:55860] [N/A] Closing connection.
+[2025-11-17 22:44:14] [INFO] [192.168.1.12:55172] [N/A] Connection accepted.
+[2025-11-17 22:44:14] [INFO] [192.168.1.12:55172] [alice] REQ: CMD=1, File='', TargetUser=''
+[2025-11-17 22:44:14] [INFO] [192.168.1.12:55172] [N/A] Closing connection.
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:55180] [N/A] Connection accepted.
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:55180] [alice] REQ: CMD=0, File='a.txt', TargetUser=''
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:55180] [alice] ACK: CMD=0, Status=OK
+[2025-11-17 22:44:19] [INFO] [192.168.1.12:55180] [N/A] Closing connection.
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:46910] [N/A] Connection accepted.
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:46910] [alice] REQ: CMD=0, File='b.txt', TargetUser=''
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:46910] [alice] ACK: CMD=0, Status=OK
+[2025-11-17 22:44:29] [INFO] [192.168.1.12:46910] [N/A] Closing connection.
+[2025-11-18 00:08:22] [INFO] [N/A:0] [SYS] SIGINT received. Shutting down gracefully.
+[22:42:37] [INFO] [SYS:0] [SYS] --- Log Shutdown ---

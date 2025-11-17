@@ -21,6 +21,7 @@
 // #define MY_CLIENT_PORT 9090 
 // #define NM_IP "127.0.0.1"
 
+char g_nm_ip[INET_ADDRSTRLEN];
 
 // --- (All helper functions and handle_client_connection remain UNCHANGED) ---
 typedef struct { char** sentences; int count; } file_in_memory_t;
@@ -191,6 +192,28 @@ void create_backup_for_undo(const char* filename) {
     fclose(bak_fp);
     fclose(orig_fp);
     printf("   [SS-Thread]: Backup created: %s\n", backup_filename);
+}
+void notify_nm_of_update(const char* nm_ip, int nm_port, const char* physical_filename) {
+    int sock_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sock_fd < 0) return;
+
+    struct sockaddr_in nm_addr;
+    memset(&nm_addr, 0, sizeof(nm_addr));
+    nm_addr.sin_family = AF_INET;
+    nm_addr.sin_port = htons(nm_port);
+    inet_pton(AF_INET, nm_ip, &nm_addr.sin_addr);
+
+    if (connect(sock_fd, (struct sockaddr*)&nm_addr, sizeof(nm_addr)) == 0) {
+        message_type_t msg = MSG_SS_UPDATE_NOTIFY;
+        send(sock_fd, &msg, sizeof(msg), 0);
+
+        ss_notify_arg_t payload;
+        strcpy(payload.service_name, physical_filename);
+        send(sock_fd, &payload, sizeof(payload), 0);
+        
+        printf("   [SS-Thread] Notified NM of update to '%s'\n", physical_filename);
+    }
+    close(sock_fd);
 }
 void get_file_counts(const char* filename, long* word_count, long* line_count) {
     FILE* fp = fopen(filename, "r");
@@ -566,6 +589,10 @@ void* handle_client_connection(void* p_arg) {
                             final_res.error_code = NFS_ERR_SS_INTERNAL; // UPDATED
                             strcpy(final_res.error_msg, "Failed to save file to disk");
                         }
+                        else {
+                        notify_nm_of_update(g_nm_ip, NM_PORT, req.filename); 
+                        // === FIX END ===
+                    }
                     }
                 }
                 final_sentence_count = file_mem.count;
@@ -778,7 +805,36 @@ void* handle_client_connection(void* p_arg) {
              }
              free(namelist);
              response_sent = true;
+        } else if (req.command == CMD_REPLICATE) { // You must add CMD_REPLICATE to common.h
+    printf("   [SS-Thread]: Handling CMD_REPLICATE for '%s'\n", req.filename);
+    
+    pthread_rwlock_wrlock(&file_lock->file_rwlock);
+    ss_response_t res = {0};
+    
+    FILE* fp = fopen(req.filename, "w"); // Overwrite mode
+    if (fp == NULL) {
+        res.status = STATUS_ERROR;
+        strcpy(res.error_msg, "Could not open file for replication");
+        send(conn_fd, &res, sizeof(ss_response_t), 0);
+    } else {
+        // 1. Send "Ready" Ack
+        res.status = STATUS_OK;
+        send(conn_fd, &res, sizeof(ss_response_t), 0);
+
+        // 2. Receive Data Loop
+        char buffer[4096];
+        ssize_t n;
+        // Read raw bytes until connection closes or 0 byte packet
+        while ((n = recv(conn_fd, buffer, sizeof(buffer), 0)) > 0) {
+            fwrite(buffer, 1, n, fp);
         }
+        
+        fclose(fp);
+        printf("   [SS-Thread]: Replication write complete.\n");
+    }
+    pthread_rwlock_unlock(&file_lock->file_rwlock);
+    response_sent = true;
+}
     } 
 
     if (!response_sent) {
@@ -809,6 +865,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Example: %s 192.168.1.5 192.168.1.6 9090\n", argv[0]);
         exit(EXIT_FAILURE);
     }
+    strncpy(g_nm_ip, argv[1], INET_ADDRSTRLEN - 1);
    char* nm_ip_arg = argv[1];       // The Name Server's IP
     char* my_ip_arg = argv[2];       // This Laptop's IP
     int my_client_port = atoi(argv[3]); // This Server's Port
