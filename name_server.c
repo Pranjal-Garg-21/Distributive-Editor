@@ -421,7 +421,9 @@ void* heartbeat_monitor(void* arg) {
         for (int i = 0; i < server_count; i++) {
             int sock = connect_to_server(server_list[i].ip, server_list[i].client_port);
             if (sock < 0) {
-                printf("!! FAILURE DETECTED: SS#%d (%s) is unreachable !!\n", i, server_list[i].ip);
+                if(server_list[i].active==true){
+                printf("!! FAILURE DETECTED: SS#%d (%s) is unreachable !!\n", i, server_list[i].ip);}
+                server_log(LOG_ERROR, server_list[i].ip, server_list[i].client_port, "NM", "Heartbeat failed. Server marked OFFLINE.");
                 server_list[i].active = false;
             } else {
                 server_list[i].active = true;
@@ -457,7 +459,7 @@ void* replication_worker(void* arg) {
         pthread_rwlock_unlock(&server_list_rwlock);
 
         printf("[RepWorker] Replicating '%s' (SS#%d -> SS#%d)...\n", task->filename, task->source_ss_idx, task->dest_ss_idx);
-
+        server_log(LOG_INFO, "Internal", 0, "REP", "Started replication: '%s' (SS#%d -> SS#%d)", task->filename, task->source_ss_idx, task->dest_ss_idx);
         // Connect to Source to READ
         int src_sock = connect_to_server(src_ip, src_port);
         if (src_sock < 0) { free(task); continue; }
@@ -488,6 +490,7 @@ ss_response_t dest_res;
 recv(dest_sock, &dest_res, sizeof(ss_response_t), 0);
 if (dest_res.status != STATUS_OK) {
     printf("[RepWorker] Dest SS refused replication: %s\n", dest_res.error_msg);
+    server_log(LOG_ERROR, "Internal", 0, "REP", "Dest SS refused replication: %s", dest_res.error_msg);
     close(src_sock);
     close(dest_sock);
     free(task);
@@ -507,6 +510,7 @@ while (1) {
     // Note: We send raw bytes, not the struct, because SS replication handler expects raw stream
     if (send(dest_sock, chunk.data, chunk.data_size, 0) < 0) {
         perror("[RepWorker] Failed to send data to Dest SS");
+        server_log(LOG_ERROR, "Internal", 0, "REP", "Failed to send replication data: %s", strerror(errno));
         break;
     }
 }
@@ -515,6 +519,7 @@ while (1) {
 close(src_sock);
 close(dest_sock);
 printf("[RepWorker] Replication task for '%s' finished successfully.\n", task->filename);
+server_log(LOG_INFO, "Internal", 0, "REP", "Replication finished for '%s'", task->filename);
 free(task);
         
     }
@@ -687,7 +692,7 @@ void handle_create_folder(nm_response_t* res, client_request_t req) {
     
     res->status = STATUS_OK;
     printf("-> Folder Created: '%s'\n", req.filename);
-    
+    server_log(LOG_INFO, "Client", 0, req.username, "Created folder '%s'", req.filename);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 
@@ -787,6 +792,7 @@ void handle_move_file(nm_response_t* res, client_request_t req) {
         
         res->status = STATUS_OK;
         printf("-> Moved file '%s' to '%s'\n", req.filename, new_full_path);
+        server_log(LOG_INFO, "Client", 0, req.username, "Moved file '%s' to '%s'", req.filename, new_full_path);
         
     } else {
         
@@ -858,6 +864,7 @@ void handle_move_file(nm_response_t* res, client_request_t req) {
 
         res->status = STATUS_OK;
         printf("-> Moved folder '%s' and all descendants to '%s'\n", req.filename, new_full_path);
+        server_log(LOG_INFO, "Client", 0, req.username, "Moved folder '%s' and descendants to '%s'", req.filename, new_full_path);
     }
 
     pthread_rwlock_unlock(&file_map_rwlock);
@@ -1039,7 +1046,33 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
         res->status = STATUS_ERROR; res->error_code = NFS_ERR_FILE_ALREADY_EXISTS;
         strcpy(res->error_msg, "File already exists"); return;
     }
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    // --- VALIDATE PARENT FOLDER ---
+    char* last_slash = strrchr(req.filename, '/');
+    if (last_slash != NULL) {
+        char parent_path[MAX_FILENAME_LEN];
+        size_t parent_len = last_slash - req.filename;
+        
+        if (parent_len > 0) {
+            strncpy(parent_path, req.filename, parent_len);
+            parent_path[parent_len] = '\0';
+            
+            file_info_t* parent_folder;
+            // Check cache first, then map
+            parent_folder = cache_get(parent_path); 
+            if (!parent_folder) HASH_FIND_STR(g_file_map, parent_path, parent_folder);
 
+            if (!parent_folder || !parent_folder->is_directory) {
+                res->status = STATUS_ERROR;
+                res->error_code = NFS_ERR_FILE_NOT_FOUND; 
+                strcpy(res->error_msg, "Parent folder does not exist");
+                pthread_rwlock_unlock(&file_map_rwlock); // Don't forget to unlock!
+                return;
+            }
+        }
+    }
+    pthread_rwlock_unlock(&file_map_rwlock);
+    // ------------------------------
     // 2. Find TWO Active Servers
     int primary_idx = -1, backup_idx = -1;
     pthread_rwlock_rdlock(&server_list_rwlock);

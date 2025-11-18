@@ -331,9 +331,6 @@ void* handle_client_connection(void* p_arg) {
     free(arg); // Free the heap-allocated struct
     // --- END NEW ---
 
-    printf("   [SS-Thread]: Got a connection! (conn_fd: %d)\n", conn_fd);
-    server_log(LOG_INFO, ip_str, port, "N/A", "Client connection accepted."); // <-- ADD THIS
-
     client_request_t req;
     bool response_sent = false; 
 
@@ -344,6 +341,11 @@ void* handle_client_connection(void* p_arg) {
         close(conn_fd);
         return NULL;
     }
+
+    printf("   [SS-Thread]: Got a connection! (conn_fd: %d)\n", conn_fd);
+    server_log(LOG_INFO, ip_str, port, "N/A", "Client connection accepted."); // <-- ADD THIS
+
+    printf("[SS-Main]: Accepted new client connection from %s\n", arg->ip_str); // Keep terminal
     if (n != sizeof(client_request_t)) {
         fprintf(stderr, "   [SS-Thread]: Error receiving client request. Expected %zu, got %zd\n",
                 sizeof(client_request_t), n);
@@ -1020,7 +1022,6 @@ int main(int argc, char *argv[]) {
         inet_ntop(AF_INET, &client_addr.sin_addr, arg->ip_str, INET_ADDRSTRLEN);
         arg->port = ntohs(client_addr.sin_port);
         
-        printf("[SS-Main]: Accepted new client connection from %s\n", arg->ip_str); // Keep terminal
         // (Logging is done inside the thread)
 
         pthread_t tid;

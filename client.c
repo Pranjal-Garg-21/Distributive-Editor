@@ -57,7 +57,6 @@ void print_help() {
  * @brief Connects to a server at the given IP and port.
  */
 int connect_to_server(char* ip, int port) {
-    printf("[DEBUG] Attempting to connect -> IP: '%s', Port: %d\n", ip, port);
     int sock_fd;
     struct sockaddr_in serv_addr;
     sock_fd = socket(AF_INET, SOCK_STREAM, 0);
