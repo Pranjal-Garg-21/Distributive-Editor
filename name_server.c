@@ -636,24 +636,58 @@ void handle_create_folder(nm_response_t* res, client_request_t req) {
     if (found_file) {
         res->status = STATUS_ERROR;
         strcpy(res->error_msg, "Folder or file already exists");
-    } else {
-        file_info_t* new_folder = (file_info_t*)calloc(1, sizeof(file_info_t));
-        strcpy(new_folder->filename, req.filename);
-        strcpy(new_folder->owner, req.username);
-        new_folder->is_directory = true;
-        new_folder->ss_index = -1; // Folders don't live on an SS
-        
-        // Add owner access
-        access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
-        strcpy(owner_access->username, req.username);
-        owner_access->level = NM_ACCESS_WRITE;
-        HASH_ADD_STR(new_folder->access_list, username, owner_access);
-
-        HASH_ADD_STR(g_file_map, filename, new_folder);
-        
-        res->status = STATUS_OK;
-        printf("-> Folder Created: '%s'\n", req.filename);
+        pthread_rwlock_unlock(&file_map_rwlock); // <-- Unlock before returning
+        return;
     }
+
+    // --- NEW PARENT DIRECTORY VALIDATION ---
+    char parent_path[MAX_FILENAME_LEN] = {0};
+    char* last_slash = strrchr(req.filename, '/');
+
+    if (last_slash != NULL) { // This is a sub-folder, e.g., "folder1/folder2"
+        size_t parent_len = last_slash - req.filename;
+        
+        if (parent_len == 0) {
+            // Path starts with '/', e.g., "/folder2". Treat root as parent.
+            // Root always exists, so no check needed.
+        } else {
+            // Path is "folder1/folder2". Check for "folder1".
+            strncpy(parent_path, req.filename, parent_len);
+            parent_path[parent_len] = '\0'; // Manually null-terminate
+            
+            file_info_t* parent_folder;
+            HASH_FIND_STR(g_file_map, parent_path, parent_folder);
+
+            if (!parent_folder || !parent_folder->is_directory) {
+                res->status = STATUS_ERROR;
+                strcpy(res->error_msg, "Parent directory does not exist or is not a folder");
+                pthread_rwlock_unlock(&file_map_rwlock);
+                return;
+            }
+        }
+    }
+    // --- END PARENT DIRECTORY VALIDATION ---
+
+    // If we're here, the parent exists (or it's a root folder)
+    // and the new folder name is unique. Proceed with creation.
+    
+    file_info_t* new_folder = (file_info_t*)calloc(1, sizeof(file_info_t));
+    strcpy(new_folder->filename, req.filename);
+    strcpy(new_folder->owner, req.username);
+    new_folder->is_directory = true;
+    new_folder->ss_index = -1; // Folders don't live on an SS
+    
+    // Add owner access
+    access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
+    strcpy(owner_access->username, req.username);
+    owner_access->level = NM_ACCESS_WRITE;
+    HASH_ADD_STR(new_folder->access_list, username, owner_access);
+
+    HASH_ADD_STR(g_file_map, filename, new_folder);
+    
+    res->status = STATUS_OK;
+    printf("-> Folder Created: '%s'\n", req.filename);
+    
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 
@@ -911,6 +945,7 @@ void handle_exec_file(int client_conn_fd, client_request_t req) {
     unlink(temp_filename);
 }
 
+// In name_server.c
 void handle_create_file(nm_response_t* res, client_request_t req) {
     // 1. Check Cache/Map
     pthread_rwlock_rdlock(&file_map_rwlock);
@@ -961,7 +996,9 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
 
     // 3. Generate Physical Name (Flattened)
     client_request_t ss_req = req;
-    for (int i = 0; ss_req.filename[i]; i++) if (ss_req.filename[i] == '/') ss_req.filename[i] = '_';
+    // *** FIX IS HERE ***
+    // Changed separator from '_' to '^' to avoid collision
+    for (int i = 0; ss_req.filename[i]; i++) if (ss_req.filename[i] == '/') ss_req.filename[i] = '^';
 
     // 4. Create on Primary
     int ss_sock = connect_to_server(p_ip, p_port);
@@ -999,10 +1036,10 @@ void handle_create_file(nm_response_t* res, client_request_t req) {
 
     file_info_t* new_file = (file_info_t*)calloc(1, sizeof(file_info_t));
     strcpy(new_file->filename, req.filename);
-    strcpy(new_file->service_name, ss_req.filename);
+    strcpy(new_file->service_name, ss_req.filename); // Store the flattened name
     strcpy(new_file->owner, req.username);
     new_file->ss_index = primary_idx;
-    new_file->ss_index_backup = backup_idx; // <--- NEW
+    new_file->ss_index_backup = backup_idx;
     new_file->is_directory = false;
 
     access_entry_t* owner_access = (access_entry_t*)malloc(sizeof(access_entry_t));
