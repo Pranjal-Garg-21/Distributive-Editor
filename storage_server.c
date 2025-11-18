@@ -338,6 +338,12 @@ void* handle_client_connection(void* p_arg) {
     bool response_sent = false; 
 
     ssize_t n = recv(conn_fd, &req, sizeof(client_request_t), 0);
+    if (n == 0) {
+        // This is a heartbeat check from NM or a client closing immediately.
+        // Do not log as error.
+        close(conn_fd);
+        return NULL;
+    }
     if (n != sizeof(client_request_t)) {
         fprintf(stderr, "   [SS-Thread]: Error receiving client request. Expected %zu, got %zd\n",
                 sizeof(client_request_t), n);
