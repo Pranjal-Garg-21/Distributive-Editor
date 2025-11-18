@@ -169,6 +169,26 @@ bool check_permission(file_info_t* file, const char* username, nm_access_level_t
 
     return false; // Should not be reached
 }
+// --- ADD THIS HELPER FUNCTION IN name_server.c ---
+bool is_user_known(const char* username) {
+    file_info_t *current_file, *tmp;
+
+    // Iterate through all files
+    HASH_ITER(hh, g_file_map, current_file, tmp) {
+        // 1. Is the user an owner of any file?
+        if (strcmp(current_file->owner, username) == 0) {
+            return true;
+        }
+
+        // 2. Is the user already in an access list?
+        access_entry_t *acc;
+        HASH_FIND_STR(current_file->access_list, username, acc);
+        if (acc) {
+            return true;
+        }
+    }
+    return false;
+}
 // --- HANDLER: Create Checkpoint ---
 void handle_checkpoint(nm_response_t* res, client_request_t req) {
     // 1. Lock & Verify Permissions (READ access is enough to create a copy, 
@@ -1395,6 +1415,7 @@ void handle_write_file(nm_response_t* res, client_request_t req) {
     pthread_rwlock_unlock(&server_list_rwlock);
     pthread_rwlock_unlock(&file_map_rwlock);
 }
+// --- UPDATED handle_add_access (with validation fix) ---
 void handle_add_access(nm_response_t* res, client_request_t req) {
     // Must hold write lock, as we are modifying the access list
     pthread_rwlock_wrlock(&file_map_rwlock); 
@@ -1403,7 +1424,6 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
     if (!found_file) {
         // 2. Cache Miss
         HASH_FIND_STR(g_file_map, req.filename, found_file);
-        // No cache_put, we will invalidate
     }
     
     if (!found_file) {
@@ -1415,13 +1435,23 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
         res->error_code = NFS_ERR_PERMISSION_DENIED; 
         strcpy(res->error_msg, "Permission denied (Only the owner can add access)");
     } else {
+        // --- START FIX: VALIDATE TARGET USER EXISTENCE ---
+        if (!is_user_known(req.target_username)) {
+             res->status = STATUS_ERROR;
+             res->error_code = NFS_ERR_INVALID_INPUT;
+             // Informative error message
+             snprintf(res->error_msg, MAX_ERROR_MSG_LEN, "User '%s' not found (User must create a file to register)", req.target_username);
+             pthread_rwlock_unlock(&file_map_rwlock); 
+             return;
+        }
+        // --- END FIX ---
+        
         access_entry_t* target_access;
         HASH_FIND_STR(found_file->access_list, req.target_username, target_access);
         
         nm_access_level_t new_level = (req.access_level == ACCESS_WRITE) ? NM_ACCESS_WRITE : NM_ACCESS_READ;
 
         if (target_access) {
-            // --- THIS IS THE FIX ---
             // Only upgrade permissions. Never downgrade.
             if (target_access->level == NM_ACCESS_WRITE && new_level == NM_ACCESS_READ) {
                 // User already has WRITE, which includes READ. Do nothing.
@@ -1434,9 +1464,8 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
                 res->status = STATUS_OK;
                 res->error_code = NFS_OK;
                 printf("   Access Updated: User '%s' set to %s for file '%s'\n", req.target_username, (new_level == NM_ACCESS_WRITE) ? "WRITE" : "READ", req.filename);
-                cache_invalidate(req.filename); // --- INVALIDATE CACHE ---
+                cache_invalidate(req.filename); // INVALIDATE CACHE 
             }
-            // --- END FIX ---
         } else {
             // User is not in the list, so create a new entry
             access_entry_t* new_access = (access_entry_t*)malloc(sizeof(access_entry_t));
@@ -1451,13 +1480,12 @@ void handle_add_access(nm_response_t* res, client_request_t req) {
                 res->status = STATUS_OK;
                 res->error_code = NFS_OK; 
                 printf("   Access Added: User '%s' given %s for file '%s'\n", req.target_username, (new_level == NM_ACCESS_WRITE) ? "WRITE" : "READ", req.filename);
-                cache_invalidate(req.filename); // --- INVALIDATE CACHE ---
+                cache_invalidate(req.filename); // INVALIDATE CACHE 
             }
         }
     }
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
 void handle_rem_access(nm_response_t* res, client_request_t req) {
     // Must hold write lock, as we are modifying the access list
     pthread_rwlock_wrlock(&file_map_rwlock); 
