@@ -1,4 +1,0 @@
-FILE a.txt alice 0
-ACL a.txt alice W
-FILE b.txt alice 1
-ACL b.txt alice W
