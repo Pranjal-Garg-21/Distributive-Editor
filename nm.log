@@ -313,3 +313,53 @@
 [2025-11-18 08:49:56] [INFO] [10.147.222.113:53136] [alice] REQ: CMD=23, File='', TargetUser=''
 [2025-11-18 08:49:56] [WARN] [10.147.222.113:53136] [alice] NAK: CMD=23, Status=ERROR, Msg=Request ID not found
 [2025-11-18 08:49:56] [INFO] [10.147.222.113:53136] [N/A] Closing connection.
+[2025-11-18 10:08:30] [INFO] [N/A:0] [SYS] SIGINT received. Shutting down gracefully.
+[08:42:59] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-18 10:14:12] [INFO] [N/A:0] [SYS] --- Name Server Starting ---
+[2025-11-18 10:14:12] [INFO] [N/A:0] [SYS] Name Server listening on port 8080
+[2025-11-18 10:14:51] [INFO] [10.147.222.113:57962] [N/A] Connection accepted.
+[2025-11-18 10:14:51] [INFO] [10.147.222.113:57962] [SS] Registered new Storage Server: 10.147.222.113:9090 (Assigned SS#0)
+[2025-11-18 10:14:51] [INFO] [10.147.222.113:57962] [N/A] Closing connection.
+[2025-11-18 10:15:18] [INFO] [10.147.222.113:41270] [N/A] Connection accepted.
+[2025-11-18 10:15:18] [INFO] [10.147.222.113:41270] [alice] REQ: CMD=14, File='folder1', TargetUser=''
+[2025-11-18 10:15:18] [INFO] [10.147.222.113:41270] [alice] ACK: CMD=14, Status=OK
+[2025-11-18 10:15:18] [INFO] [10.147.222.113:41270] [N/A] Closing connection.
+[2025-11-18 10:21:12] [INFO] [10.147.222.113:43152] [N/A] Connection accepted.
+[2025-11-18 10:21:12] [INFO] [10.147.222.113:43152] [alice] REQ: CMD=14, File='folder2', TargetUser=''
+[2025-11-18 10:21:12] [INFO] [10.147.222.113:43152] [alice] ACK: CMD=14, Status=OK
+[2025-11-18 10:21:12] [INFO] [10.147.222.113:43152] [N/A] Closing connection.
+[2025-11-18 10:21:23] [INFO] [10.147.222.113:45050] [N/A] Connection accepted.
+[2025-11-18 10:21:23] [INFO] [10.147.222.113:45050] [alice] REQ: CMD=0, File='folder1/file.txt', TargetUser=''
+[2025-11-18 10:21:23] [INFO] [10.147.222.113:45050] [alice] ACK: CMD=0, Status=OK
+[2025-11-18 10:21:23] [INFO] [10.147.222.113:45050] [N/A] Closing connection.
+[2025-11-18 10:21:36] [INFO] [10.147.222.113:56470] [N/A] Connection accepted.
+[2025-11-18 10:21:36] [INFO] [10.147.222.113:56470] [alice] REQ: CMD=13, File='folder1', TargetUser=''
+[2025-11-18 10:21:36] [INFO] [10.147.222.113:56470] [N/A] Closing connection.
+[2025-11-18 10:21:49] [INFO] [10.147.222.113:59700] [N/A] Connection accepted.
+[2025-11-18 10:21:49] [INFO] [10.147.222.113:59700] [alice] REQ: CMD=15, File='folder1', TargetUser=''
+[2025-11-18 10:21:49] [INFO] [10.147.222.113:59700] [alice] ACK: CMD=15, Status=OK
+[2025-11-18 10:21:49] [INFO] [10.147.222.113:59700] [N/A] Closing connection.
+[2025-11-18 10:22:05] [INFO] [10.147.222.113:58932] [N/A] Connection accepted.
+[2025-11-18 10:22:05] [INFO] [10.147.222.113:58932] [alice] REQ: CMD=13, File='folder2', TargetUser=''
+[2025-11-18 10:22:05] [INFO] [10.147.222.113:58932] [N/A] Closing connection.
+[2025-11-18 10:22:28] [INFO] [10.147.222.113:47962] [N/A] Connection accepted.
+[2025-11-18 10:22:28] [INFO] [10.147.222.113:47962] [alice] REQ: CMD=13, File='folder2/folder1', TargetUser=''
+[2025-11-18 10:22:28] [INFO] [10.147.222.113:47962] [N/A] Closing connection.
+[2025-11-18 10:22:48] [INFO] [10.147.222.113:52264] [N/A] Connection accepted.
+[2025-11-18 10:22:48] [INFO] [10.147.222.113:52264] [alice] REQ: CMD=3, File='folder2/folder1/file.txt', TargetUser=''
+[2025-11-18 10:22:48] [INFO] [10.147.222.113:52264] [alice] ACK: CMD=3, Status=OK
+[2025-11-18 10:22:48] [INFO] [10.147.222.113:52264] [N/A] Closing connection.
+[2025-11-18 10:32:50] [INFO] [10.147.222.113:48102] [N/A] Connection accepted.
+[2025-11-18 10:32:50] [INFO] [10.147.222.113:48102] [alice] REQ: CMD=0, File='testa.txt', TargetUser=''
+[2025-11-18 10:32:50] [INFO] [10.147.222.113:48102] [alice] ACK: CMD=0, Status=OK
+[2025-11-18 10:32:50] [INFO] [10.147.222.113:48102] [N/A] Closing connection.
+[2025-11-18 10:33:00] [INFO] [10.147.222.113:39626] [N/A] Connection accepted.
+[2025-11-18 10:33:00] [INFO] [10.147.222.113:39626] [alice] REQ: CMD=5, File='testa.txt', TargetUser=''
+[2025-11-18 10:33:00] [INFO] [10.147.222.113:39626] [alice] ACK: CMD=5, Status=OK
+[2025-11-18 10:33:00] [INFO] [10.147.222.113:39626] [N/A] Closing connection.
+[2025-11-18 10:33:23] [INFO] [10.147.222.113:53086] [N/A] Connection accepted.
+[2025-11-18 10:33:23] [INFO] [10.147.222.113:53086] [N/A] Closing connection.
+[2025-11-18 10:33:31] [INFO] [10.147.222.113:53098] [N/A] Connection accepted.
+[2025-11-18 10:33:31] [INFO] [10.147.222.113:53098] [alice] REQ: CMD=3, File='testa.txt', TargetUser=''
+[2025-11-18 10:33:31] [INFO] [10.147.222.113:53098] [alice] ACK: CMD=3, Status=OK
+[2025-11-18 10:33:31] [INFO] [10.147.222.113:53098] [N/A] Closing connection.

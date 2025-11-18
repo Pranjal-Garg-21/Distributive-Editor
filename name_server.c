@@ -691,7 +691,20 @@ void handle_create_folder(nm_response_t* res, client_request_t req) {
     pthread_rwlock_unlock(&file_map_rwlock);
 }
 
+// In name_server.c
+// (You'll need this helper struct definition inside the function)
+
+// In name_server.c
+
+// In name_server.c
+
 void handle_move_file(nm_response_t* res, client_request_t req) {
+    // Helper struct for the two-pass move
+    typedef struct move_node {
+        file_info_t* file;
+        struct move_node* next;
+    } move_node_t;
+
     pthread_rwlock_wrlock(&file_map_rwlock);
 
     file_info_t* file;
@@ -711,9 +724,7 @@ void handle_move_file(nm_response_t* res, client_request_t req) {
         return;
     }
 
-    // 2. Check destination folder (req.dest_path)
-    // Note: If dest_path is empty/root, that's valid. 
-    // If it's "folder1", we must ensure "folder1" exists and is a directory.
+    // 2. Check destination folder
     if (strlen(req.dest_path) > 0) {
         file_info_t* folder;
         HASH_FIND_STR(g_file_map, req.dest_path, folder);
@@ -725,22 +736,22 @@ void handle_move_file(nm_response_t* res, client_request_t req) {
         }
     }
 
-   // 3. Construct new logical path
-    // FIX: Use a double-sized buffer to prevent snprintf truncation warning
-    char new_full_path[MAX_FILENAME_LEN * 2]; 
-    char *leaf = strrchr(file->filename, '/');
-    const char *just_name = leaf ? leaf + 1 : file->filename;
+    // 3. Construct new logical path for the item being moved
+    char new_full_path[MAX_FILENAME_LEN];
+    char* leaf = strrchr(file->filename, '/');
+    const char* just_name = leaf ? leaf + 1 : file->filename;
+    int written_len;
 
     if (strlen(req.dest_path) == 0) {
         // Move to root
-        strncpy(new_full_path, just_name, MAX_FILENAME_LEN * 2);
+        written_len = snprintf(new_full_path, sizeof(new_full_path), "%s", just_name);
     } else {
         // Move to folder
-        snprintf(new_full_path, sizeof(new_full_path), "%s/%s", req.dest_path, just_name);
+        written_len = snprintf(new_full_path, sizeof(new_full_path), "%s/%s", req.dest_path, just_name);
     }
 
-    // FIX: Explicit check if the resulting path is too long for the system
-    if (strlen(new_full_path) >= MAX_FILENAME_LEN) {
+    // Check for truncation (path too long)
+    if (written_len < 0 || written_len >= sizeof(new_full_path)) {
         res->status = STATUS_ERROR;
         res->error_code = NFS_ERR_INVALID_FILENAME;
         strcpy(res->error_msg, "Resulting path is too long");
@@ -758,28 +769,99 @@ void handle_move_file(nm_response_t* res, client_request_t req) {
         return;
     }
 
-    // 5. Perform the Move (re-keying in uthash requires add/delete)
-    // We create a NEW entry with the NEW name, copy data, delete OLD.
-    file_info_t* new_entry = (file_info_t*)malloc(sizeof(file_info_t));
-    memcpy(new_entry, file, sizeof(file_info_t)); // Copy all data (ss_index, service_name, etc)
-    strcpy(new_entry->filename, new_full_path);   // Update key
-    
-    // IMPORTANT: access_list is a pointer. We can just move the pointer, 
-    // but we must set the old one to NULL so we don't double free.
-    file->access_list = NULL; 
+    // 5. Perform the Move
+    if (!file->is_directory) {
+        
+        // --- A) This is a FILE move. ---
+        file_info_t* new_entry = (file_info_t*)malloc(sizeof(file_info_t));
+        memcpy(new_entry, file, sizeof(file_info_t));
+        strcpy(new_entry->filename, new_full_path); // Update key
+        
+        file->access_list = NULL; // Move access list pointer
 
-    HASH_ADD_STR(g_file_map, filename, new_entry);
-    HASH_DEL(g_file_map, file);
-    free(file);
+        HASH_ADD_STR(g_file_map, filename, new_entry);
+        HASH_DEL(g_file_map, file);
+        free(file);
 
-    cache_invalidate(req.filename); // Remove old name from cache
-    
-    res->status = STATUS_OK;
-    printf("-> Moved '%s' to '%s'\n", req.filename, new_full_path);
+        cache_invalidate(req.filename);
+        
+        res->status = STATUS_OK;
+        printf("-> Moved file '%s' to '%s'\n", req.filename, new_full_path);
+        
+    } else {
+        
+        // --- B) This is a FOLDER move. ---
+        
+        // 1. Create prefixes for renaming
+        char old_prefix[MAX_FILENAME_LEN + 2]; // e.g., "folder1/"
+        snprintf(old_prefix, sizeof(old_prefix), "%s/", req.filename);
+        size_t old_prefix_len = strlen(old_prefix);
+
+        char new_prefix[MAX_FILENAME_LEN + 2]; // e.g., "folder2/folder1/"
+        snprintf(new_prefix, sizeof(new_prefix), "%s/", new_full_path);
+        
+        // 2. Pass 1: Build temporary list of items to move
+        move_node_t* move_list = NULL;
+        file_info_t* current_file, *tmp;
+        
+        HASH_ITER(hh, g_file_map, current_file, tmp) {
+            if (starts_with(old_prefix, current_file->filename)) {
+                move_node_t* node = (move_node_t*)malloc(sizeof(move_node_t));
+                node->file = current_file;
+                node->next = move_list;
+                move_list = node;
+            }
+        }
+        
+        move_node_t* self_node = (move_node_t*)malloc(sizeof(move_node_t));
+        self_node->file = file; // Add the folder itself
+        self_node->next = move_list;
+        move_list = self_node;
+
+        // 3. Pass 2: Rename and re-hash
+        move_node_t* current_node = move_list;
+        while (current_node) {
+            file_info_t* f = current_node->file;
+            char old_name[MAX_FILENAME_LEN];
+            strcpy(old_name, f->filename); // Store old name
+
+            // Generate new name
+            char new_name[MAX_FILENAME_LEN]; // Final destination buffer
+            int child_path_len;
+            
+            if (strcmp(old_name, req.filename) == 0) {
+                // This is the root folder itself
+                child_path_len = snprintf(new_name, sizeof(new_name), "%s", new_full_path);
+            } else {
+                // This is a child. new_name = new_prefix + (old_name - old_prefix_len)
+                char* remainder = f->filename + old_prefix_len;
+                child_path_len = snprintf(new_name, sizeof(new_name), "%s%s", new_prefix, remainder);
+            }
+
+            // Check for path length overflow on children
+            if (child_path_len < 0 || child_path_len >= sizeof(new_name)) {
+                 printf("   !! WARNING: Skipping move for '%s', new path is too long.\n", old_name);
+            } else {
+                // Re-hash: Delete old key, update name field, add new key
+                HASH_DEL(g_file_map, f);
+                strcpy(f->filename, new_name); // Update the key
+                HASH_ADD_STR(g_file_map, filename, f);
+                
+                cache_invalidate(old_name); // Invalidate old name
+            }
+            
+            // Free the temp list node
+            move_node_t* next = current_node->next;
+            free(current_node);
+            current_node = next;
+        }
+
+        res->status = STATUS_OK;
+        printf("-> Moved folder '%s' and all descendants to '%s'\n", req.filename, new_full_path);
+    }
 
     pthread_rwlock_unlock(&file_map_rwlock);
 }
-
 void handle_view_folder(int conn_fd, client_request_t req) {
     nm_response_t res_header = {0};
     int file_count = 0;
