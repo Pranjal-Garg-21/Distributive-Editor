@@ -53,3 +53,230 @@
 [2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] REQ: CMD=0, File='a.txt'
 [2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=a.txt
 [2025-11-17 22:44:19] [INFO] [192.168.1.12:50488] [alice] Closing connection.
+[2025-11-18 08:35:33] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-18 08:37:47] [ERROR] [N/A:0] [SYS] connection to Name Server failed: Connection timed out
+[08:32:39] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] --- Storage Server Starting (Port: 9090) ---
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Connected to Name Server at 10.147.222.113:9090
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Registration complete. Reporting files...
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: a.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: docs_notes.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: hhh.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: b.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: hi.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Reporting existing file: yo.txt
+[2025-11-18 08:45:05] [INFO] [N/A:0] [SYS] Storage Server listening for clients on port 9090
+[2025-11-18 08:45:07] [INFO] [10.147.222.113:54550] [N/A] Client connection accepted.
+[2025-11-18 08:45:07] [ERROR] [10.147.222.113:54550] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:10] [INFO] [10.147.222.113:54564] [N/A] Client connection accepted.
+[2025-11-18 08:45:10] [ERROR] [10.147.222.113:54564] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:13] [INFO] [10.147.222.113:54574] [N/A] Client connection accepted.
+[2025-11-18 08:45:13] [ERROR] [10.147.222.113:54574] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:16] [INFO] [10.147.222.113:60230] [N/A] Client connection accepted.
+[2025-11-18 08:45:16] [ERROR] [10.147.222.113:60230] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:19] [INFO] [10.147.222.113:60244] [N/A] Client connection accepted.
+[2025-11-18 08:45:19] [ERROR] [10.147.222.113:60244] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:22] [INFO] [10.147.222.113:60258] [N/A] Client connection accepted.
+[2025-11-18 08:45:22] [ERROR] [10.147.222.113:60258] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:25] [INFO] [10.147.222.113:60274] [N/A] Client connection accepted.
+[2025-11-18 08:45:25] [ERROR] [10.147.222.113:60274] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:28] [INFO] [10.147.222.113:45658] [N/A] Client connection accepted.
+[2025-11-18 08:45:28] [ERROR] [10.147.222.113:45658] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:31] [INFO] [10.147.222.113:45674] [N/A] Client connection accepted.
+[2025-11-18 08:45:31] [ERROR] [10.147.222.113:45674] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:34] [INFO] [10.147.222.113:45680] [N/A] Client connection accepted.
+[2025-11-18 08:45:34] [ERROR] [10.147.222.113:45680] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:37] [INFO] [10.147.222.113:50558] [N/A] Client connection accepted.
+[2025-11-18 08:45:37] [ERROR] [10.147.222.113:50558] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:40] [INFO] [10.147.222.113:50562] [N/A] Client connection accepted.
+[2025-11-18 08:45:40] [ERROR] [10.147.222.113:50562] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:43] [INFO] [10.147.222.113:50576] [N/A] Client connection accepted.
+[2025-11-18 08:45:43] [ERROR] [10.147.222.113:50576] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:44006] [N/A] Client connection accepted.
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:44006] [alice] REQ: CMD=0, File='hello.txt'
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:44006] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=hello.txt
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:44006] [alice] Closing connection.
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:44022] [N/A] Client connection accepted.
+[2025-11-18 08:45:46] [ERROR] [10.147.222.113:44022] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:49] [INFO] [10.147.222.113:44038] [N/A] Client connection accepted.
+[2025-11-18 08:45:49] [ERROR] [10.147.222.113:44038] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:52] [INFO] [10.147.222.113:44042] [N/A] Client connection accepted.
+[2025-11-18 08:45:52] [ERROR] [10.147.222.113:44042] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:55] [INFO] [10.147.222.113:44044] [N/A] Client connection accepted.
+[2025-11-18 08:45:55] [ERROR] [10.147.222.113:44044] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:45:58] [INFO] [10.147.222.113:59404] [N/A] Client connection accepted.
+[2025-11-18 08:45:58] [ERROR] [10.147.222.113:59404] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:01] [INFO] [10.147.222.113:59414] [N/A] Client connection accepted.
+[2025-11-18 08:46:01] [ERROR] [10.147.222.113:59414] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:04] [INFO] [10.147.222.113:59416] [N/A] Client connection accepted.
+[2025-11-18 08:46:04] [ERROR] [10.147.222.113:59416] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:07] [INFO] [10.147.222.113:56834] [N/A] Client connection accepted.
+[2025-11-18 08:46:07] [ERROR] [10.147.222.113:56834] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:10] [INFO] [10.147.222.113:56844] [N/A] Client connection accepted.
+[2025-11-18 08:46:10] [ERROR] [10.147.222.113:56844] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:13] [INFO] [10.147.222.113:56856] [N/A] Client connection accepted.
+[2025-11-18 08:46:13] [ERROR] [10.147.222.113:56856] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:16] [INFO] [10.147.222.113:39148] [N/A] Client connection accepted.
+[2025-11-18 08:46:16] [ERROR] [10.147.222.113:39148] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:19] [INFO] [10.147.222.113:39154] [N/A] Client connection accepted.
+[2025-11-18 08:46:19] [ERROR] [10.147.222.113:39154] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:22] [INFO] [10.147.222.113:39162] [N/A] Client connection accepted.
+[2025-11-18 08:46:22] [ERROR] [10.147.222.113:39162] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:25] [INFO] [10.147.222.113:39168] [N/A] Client connection accepted.
+[2025-11-18 08:46:25] [ERROR] [10.147.222.113:39168] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:28] [INFO] [10.147.222.113:44758] [N/A] Client connection accepted.
+[2025-11-18 08:46:28] [ERROR] [10.147.222.113:44758] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:31] [INFO] [10.147.222.113:44760] [N/A] Client connection accepted.
+[2025-11-18 08:46:31] [ERROR] [10.147.222.113:44760] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:34] [INFO] [10.147.222.113:44766] [N/A] Client connection accepted.
+[2025-11-18 08:46:34] [ERROR] [10.147.222.113:44766] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:37] [INFO] [10.147.222.113:41866] [N/A] Client connection accepted.
+[2025-11-18 08:46:37] [ERROR] [10.147.222.113:41866] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:40] [INFO] [10.147.222.113:41876] [N/A] Client connection accepted.
+[2025-11-18 08:46:40] [ERROR] [10.147.222.113:41876] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:43] [INFO] [10.147.222.113:41888] [N/A] Client connection accepted.
+[2025-11-18 08:46:43] [ERROR] [10.147.222.113:41888] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:46] [INFO] [10.147.222.113:58192] [N/A] Client connection accepted.
+[2025-11-18 08:46:46] [ERROR] [10.147.222.113:58192] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:49] [INFO] [10.147.222.113:58196] [N/A] Client connection accepted.
+[2025-11-18 08:46:49] [ERROR] [10.147.222.113:58196] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:52] [INFO] [10.147.222.113:58212] [N/A] Client connection accepted.
+[2025-11-18 08:46:52] [ERROR] [10.147.222.113:58212] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:55] [INFO] [10.147.222.113:58214] [N/A] Client connection accepted.
+[2025-11-18 08:46:55] [ERROR] [10.147.222.113:58214] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:46:58] [INFO] [10.147.222.113:54094] [N/A] Client connection accepted.
+[2025-11-18 08:46:58] [ERROR] [10.147.222.113:54094] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:01] [INFO] [10.147.222.113:54098] [N/A] Client connection accepted.
+[2025-11-18 08:47:01] [ERROR] [10.147.222.113:54098] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:04] [INFO] [10.147.222.113:54102] [N/A] Client connection accepted.
+[2025-11-18 08:47:04] [ERROR] [10.147.222.113:54102] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:07] [INFO] [10.147.222.113:37652] [N/A] Client connection accepted.
+[2025-11-18 08:47:07] [ERROR] [10.147.222.113:37652] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:10] [INFO] [10.147.222.113:37660] [N/A] Client connection accepted.
+[2025-11-18 08:47:10] [ERROR] [10.147.222.113:37660] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:13] [INFO] [10.147.222.113:37670] [N/A] Client connection accepted.
+[2025-11-18 08:47:13] [ERROR] [10.147.222.113:37670] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:16] [INFO] [10.147.222.113:58302] [N/A] Client connection accepted.
+[2025-11-18 08:47:16] [ERROR] [10.147.222.113:58302] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:58314] [N/A] Client connection accepted.
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:58314] [bob] REQ: CMD=3, File='hello.txt'
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:58314] [bob] ACK: CMD=READ_FILE, Status=OK, File=hello.txt
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:58314] [bob] Closing connection.
+[2025-11-18 08:47:19] [INFO] [10.147.222.113:58326] [N/A] Client connection accepted.
+[2025-11-18 08:47:19] [ERROR] [10.147.222.113:58326] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:22] [INFO] [10.147.222.113:58336] [N/A] Client connection accepted.
+[2025-11-18 08:47:22] [ERROR] [10.147.222.113:58336] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:25] [INFO] [10.147.222.113:58346] [N/A] Client connection accepted.
+[2025-11-18 08:47:25] [ERROR] [10.147.222.113:58346] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:28] [INFO] [10.147.222.113:53524] [N/A] Client connection accepted.
+[2025-11-18 08:47:28] [ERROR] [10.147.222.113:53524] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:31] [INFO] [10.147.222.113:53536] [N/A] Client connection accepted.
+[2025-11-18 08:47:31] [ERROR] [10.147.222.113:53536] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:34] [INFO] [10.147.222.113:53544] [N/A] Client connection accepted.
+[2025-11-18 08:47:34] [ERROR] [10.147.222.113:53544] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:37] [INFO] [10.147.222.113:44966] [N/A] Client connection accepted.
+[2025-11-18 08:47:37] [ERROR] [10.147.222.113:44966] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:40] [INFO] [10.147.222.113:44968] [N/A] Client connection accepted.
+[2025-11-18 08:47:40] [ERROR] [10.147.222.113:44968] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:43] [INFO] [10.147.222.113:44976] [N/A] Client connection accepted.
+[2025-11-18 08:47:43] [ERROR] [10.147.222.113:44976] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:46] [INFO] [10.147.222.113:56650] [N/A] Client connection accepted.
+[2025-11-18 08:47:46] [ERROR] [10.147.222.113:56650] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:49] [INFO] [10.147.222.113:56654] [N/A] Client connection accepted.
+[2025-11-18 08:47:49] [ERROR] [10.147.222.113:56654] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:52] [INFO] [10.147.222.113:56664] [N/A] Client connection accepted.
+[2025-11-18 08:47:52] [ERROR] [10.147.222.113:56664] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:55] [INFO] [10.147.222.113:56674] [N/A] Client connection accepted.
+[2025-11-18 08:47:55] [ERROR] [10.147.222.113:56674] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58044] [N/A] Client connection accepted.
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58044] [alice] REQ: CMD=0, File='deny.txt'
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58044] [alice] ACK: CMD=CREATE_FILE, Status=OK, File=deny.txt
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58044] [alice] Closing connection.
+[2025-11-18 08:47:58] [INFO] [10.147.222.113:58046] [N/A] Client connection accepted.
+[2025-11-18 08:47:58] [ERROR] [10.147.222.113:58046] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:01] [INFO] [10.147.222.113:58062] [N/A] Client connection accepted.
+[2025-11-18 08:48:01] [ERROR] [10.147.222.113:58062] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:04] [INFO] [10.147.222.113:58064] [N/A] Client connection accepted.
+[2025-11-18 08:48:04] [ERROR] [10.147.222.113:58064] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:07] [INFO] [10.147.222.113:50760] [N/A] Client connection accepted.
+[2025-11-18 08:48:07] [ERROR] [10.147.222.113:50760] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:10] [INFO] [10.147.222.113:50764] [N/A] Client connection accepted.
+[2025-11-18 08:48:10] [ERROR] [10.147.222.113:50764] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:13] [INFO] [10.147.222.113:50772] [N/A] Client connection accepted.
+[2025-11-18 08:48:13] [ERROR] [10.147.222.113:50772] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:16] [INFO] [10.147.222.113:56858] [N/A] Client connection accepted.
+[2025-11-18 08:48:16] [ERROR] [10.147.222.113:56858] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:19] [INFO] [10.147.222.113:56872] [N/A] Client connection accepted.
+[2025-11-18 08:48:19] [ERROR] [10.147.222.113:56872] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:22] [INFO] [10.147.222.113:56882] [N/A] Client connection accepted.
+[2025-11-18 08:48:22] [ERROR] [10.147.222.113:56882] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:25] [INFO] [10.147.222.113:56894] [N/A] Client connection accepted.
+[2025-11-18 08:48:25] [ERROR] [10.147.222.113:56894] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:28] [INFO] [10.147.222.113:57752] [N/A] Client connection accepted.
+[2025-11-18 08:48:28] [ERROR] [10.147.222.113:57752] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:31] [INFO] [10.147.222.113:57760] [N/A] Client connection accepted.
+[2025-11-18 08:48:31] [ERROR] [10.147.222.113:57760] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:34] [INFO] [10.147.222.113:57776] [N/A] Client connection accepted.
+[2025-11-18 08:48:34] [ERROR] [10.147.222.113:57776] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:37] [INFO] [10.147.222.113:57872] [N/A] Client connection accepted.
+[2025-11-18 08:48:37] [ERROR] [10.147.222.113:57872] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:40] [INFO] [10.147.222.113:57874] [N/A] Client connection accepted.
+[2025-11-18 08:48:40] [ERROR] [10.147.222.113:57874] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:43] [INFO] [10.147.222.113:57880] [N/A] Client connection accepted.
+[2025-11-18 08:48:43] [ERROR] [10.147.222.113:57880] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:46] [INFO] [10.147.222.113:45896] [N/A] Client connection accepted.
+[2025-11-18 08:48:46] [ERROR] [10.147.222.113:45896] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:49] [INFO] [10.147.222.113:45898] [N/A] Client connection accepted.
+[2025-11-18 08:48:49] [ERROR] [10.147.222.113:45898] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:52] [INFO] [10.147.222.113:45902] [N/A] Client connection accepted.
+[2025-11-18 08:48:52] [ERROR] [10.147.222.113:45902] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:55] [INFO] [10.147.222.113:45910] [N/A] Client connection accepted.
+[2025-11-18 08:48:55] [ERROR] [10.147.222.113:45910] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:48:58] [INFO] [10.147.222.113:38112] [N/A] Client connection accepted.
+[2025-11-18 08:48:58] [ERROR] [10.147.222.113:38112] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:01] [INFO] [10.147.222.113:38120] [N/A] Client connection accepted.
+[2025-11-18 08:49:01] [ERROR] [10.147.222.113:38120] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:04] [INFO] [10.147.222.113:38130] [N/A] Client connection accepted.
+[2025-11-18 08:49:04] [ERROR] [10.147.222.113:38130] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:07] [INFO] [10.147.222.113:42108] [N/A] Client connection accepted.
+[2025-11-18 08:49:07] [ERROR] [10.147.222.113:42108] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:10] [INFO] [10.147.222.113:42122] [N/A] Client connection accepted.
+[2025-11-18 08:49:10] [ERROR] [10.147.222.113:42122] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:13] [INFO] [10.147.222.113:42124] [N/A] Client connection accepted.
+[2025-11-18 08:49:13] [ERROR] [10.147.222.113:42124] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:16] [INFO] [10.147.222.113:48114] [N/A] Client connection accepted.
+[2025-11-18 08:49:16] [ERROR] [10.147.222.113:48114] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:19] [INFO] [10.147.222.113:48128] [N/A] Client connection accepted.
+[2025-11-18 08:49:19] [ERROR] [10.147.222.113:48128] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:22] [INFO] [10.147.222.113:48130] [N/A] Client connection accepted.
+[2025-11-18 08:49:22] [ERROR] [10.147.222.113:48130] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:25] [INFO] [10.147.222.113:48140] [N/A] Client connection accepted.
+[2025-11-18 08:49:25] [ERROR] [10.147.222.113:48140] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:28] [INFO] [10.147.222.113:47246] [N/A] Client connection accepted.
+[2025-11-18 08:49:28] [ERROR] [10.147.222.113:47246] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:31] [INFO] [10.147.222.113:47254] [N/A] Client connection accepted.
+[2025-11-18 08:49:31] [ERROR] [10.147.222.113:47254] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:34] [INFO] [10.147.222.113:47266] [N/A] Client connection accepted.
+[2025-11-18 08:49:34] [ERROR] [10.147.222.113:47266] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:37] [INFO] [10.147.222.113:54406] [N/A] Client connection accepted.
+[2025-11-18 08:49:37] [ERROR] [10.147.222.113:54406] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:40] [INFO] [10.147.222.113:54418] [N/A] Client connection accepted.
+[2025-11-18 08:49:40] [ERROR] [10.147.222.113:54418] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:43] [INFO] [10.147.222.113:54426] [N/A] Client connection accepted.
+[2025-11-18 08:49:43] [ERROR] [10.147.222.113:54426] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:46] [INFO] [10.147.222.113:45702] [N/A] Client connection accepted.
+[2025-11-18 08:49:46] [ERROR] [10.147.222.113:45702] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:49] [INFO] [10.147.222.113:45712] [N/A] Client connection accepted.
+[2025-11-18 08:49:49] [ERROR] [10.147.222.113:45712] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:52] [INFO] [10.147.222.113:45714] [N/A] Client connection accepted.
+[2025-11-18 08:49:52] [ERROR] [10.147.222.113:45714] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:55] [INFO] [10.147.222.113:45722] [N/A] Client connection accepted.
+[2025-11-18 08:49:55] [ERROR] [10.147.222.113:45722] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:49:58] [INFO] [10.147.222.113:60064] [N/A] Client connection accepted.
+[2025-11-18 08:49:58] [ERROR] [10.147.222.113:60064] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:50:01] [INFO] [10.147.222.113:60072] [N/A] Client connection accepted.
+[2025-11-18 08:50:01] [ERROR] [10.147.222.113:60072] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:50:04] [INFO] [10.147.222.113:60088] [N/A] Client connection accepted.
+[2025-11-18 08:50:04] [ERROR] [10.147.222.113:60088] [N/A] Error receiving client request. Expected 680, got 0
+[2025-11-18 08:50:07] [INFO] [10.147.222.113:53510] [N/A] Client connection accepted.
+[2025-11-18 08:50:07] [ERROR] [10.147.222.113:53510] [N/A] Error receiving client request. Expected 680, got 0

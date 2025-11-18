@@ -90,7 +90,18 @@ static cache_entry_t* g_cache_tail = NULL;      // Least-recently-used
 static int g_cache_size = 0;
 static pthread_mutex_t g_cache_mutex;          // Mutex to protect all cache operations
 
-// --- END CACHE DEFINITIONS ---
+typedef struct access_request_s {
+    int request_id;
+    char filename[MAX_FILENAME_LEN];
+    char owner[MAX_USERNAME_LEN];
+    char requester[MAX_USERNAME_LEN];
+    UT_hash_handle hh; // Make it a hash map for fast lookup by ID
+} access_request_t;
+
+static access_request_t* g_access_requests = NULL;
+static int g_next_request_id = 1; // Start IDs from 1
+static pthread_mutex_t g_request_list_mutex;
+
 
 
 /**
@@ -120,7 +131,44 @@ int connect_to_server(char* ip, int port) {
     return sock_fd;
 }
 // In name_server.c
+/**
+ * @brief Checks if a user has the required permission level for a file.
+ * * @param file The file_info_t struct for the file.
+ * @param username The user to check.
+ * @param required_level The minimum level (NM_ACCESS_READ or NM_ACCESS_WRITE).
+ * @return true if permission is granted, false otherwise.
+ */
+bool check_permission(file_info_t* file, const char* username, nm_access_level_t required_level) {
+    if (!file) {
+        return false; // File doesn't exist
+    }
 
+    // 1. Check if user is the owner (owner always has full access)
+    if (strcmp(file->owner, username) == 0) {
+        return true;
+    }
+
+    // 2. Check the access list for the user
+    access_entry_t* found_access;
+    HASH_FIND_STR(file->access_list, username, found_access);
+
+    if (!found_access) {
+        return false; // User not in list at all
+    }
+
+    // 3. Check if their permission level is sufficient
+    if (required_level == NM_ACCESS_READ) {
+        // Both READ and WRITE permissions are sufficient for a READ request
+        return (found_access->level == NM_ACCESS_READ || found_access->level == NM_ACCESS_WRITE);
+    }
+    
+    if (required_level == NM_ACCESS_WRITE) {
+        // Only WRITE permission is sufficient for a WRITE request
+        return (found_access->level == NM_ACCESS_WRITE);
+    }
+
+    return false; // Should not be reached
+}
 // --- HANDLER: Create Checkpoint ---
 void handle_checkpoint(nm_response_t* res, client_request_t req) {
     // 1. Lock & Verify Permissions (READ access is enough to create a copy, 
@@ -176,7 +224,179 @@ void handle_checkpoint(nm_response_t* res, client_request_t req) {
     strcpy(res->error_msg, ss_res.error_msg);
 }
 
+// In name_server.c
+// ...
 
+// --- NEW: Handler for CMD_REQUEST_ACCESS ---
+void handle_request_access(nm_response_t* res, client_request_t req) {
+    pthread_rwlock_rdlock(&file_map_rwlock);
+    file_info_t* file = cache_get(req.filename);
+    if (!file) HASH_FIND_STR(g_file_map, req.filename, file);
+
+    if (!file) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "File not found");
+        pthread_rwlock_unlock(&file_map_rwlock); return;
+    }
+    if (strcmp(file->owner, req.username) == 0) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "You are the owner of this file");
+        pthread_rwlock_unlock(&file_map_rwlock); return;
+    }
+    if (check_permission(file, req.username, NM_ACCESS_READ)) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "You already have access to this file");
+        pthread_rwlock_unlock(&file_map_rwlock); return;
+    }
+
+    // Capture owner to release file map lock
+    char owner_name[MAX_USERNAME_LEN];
+    strcpy(owner_name, file->owner);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    // Now lock the request list
+    pthread_mutex_lock(&g_request_list_mutex);
+    
+    // Check for duplicate request
+   access_request_t *current_req, *tmp;
+    HASH_ITER(hh, g_access_requests, current_req, tmp) {
+        if (strcmp(current_req->filename, req.filename) == 0 && strcmp(current_req->requester, req.username) == 0) {
+            res->status = STATUS_ERROR; strcpy(res->error_msg, "You have already requested access for this file");
+            pthread_mutex_unlock(&g_request_list_mutex); return;
+        }
+    }
+
+    access_request_t* new_req = (access_request_t*)malloc(sizeof(access_request_t));
+    if (!new_req) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "Server internal error");
+        pthread_mutex_unlock(&g_request_list_mutex); return;
+    }
+
+    new_req->request_id = g_next_request_id++;
+    strcpy(new_req->filename, req.filename);
+    strcpy(new_req->owner, owner_name);
+    strcpy(new_req->requester, req.username);
+    
+    HASH_ADD_INT(g_access_requests, request_id, new_req);
+    
+    pthread_mutex_unlock(&g_request_list_mutex);
+    res->status = STATUS_OK;
+    printf("   -> New Access Request #%d (%s for %s) logged.\n", new_req->request_id, req.username, req.filename);
+}
+
+// --- NEW: Handler for CMD_LIST_REQUESTS ---
+void handle_list_requests(int client_fd, client_request_t req) {
+    nm_response_t res_header = {0};
+    int count = 0;
+
+    pthread_mutex_lock(&g_request_list_mutex);
+    
+    // 1st pass: Count
+    access_request_t *r, *tmp;
+    HASH_ITER(hh, g_access_requests, r, tmp) {
+        if (strcmp(r->owner, req.username) == 0) {
+            count++;
+        }
+    }
+
+    res_header.status = STATUS_OK;
+    res_header.file_count = count; // Re-using file_count
+    send(client_fd, &res_header, sizeof(nm_response_t), 0);
+
+    // 2nd pass: Send data
+    nm_access_request_entry_t entry;
+    HASH_ITER(hh, g_access_requests, r, tmp) {
+        if (strcmp(r->owner, req.username) == 0) {
+            entry.request_id = r->request_id;
+            strcpy(entry.filename, r->filename);
+            strcpy(entry.username, r->requester);
+            send(client_fd, &entry, sizeof(nm_access_request_entry_t), 0);
+        }
+    }
+    
+    pthread_mutex_unlock(&g_request_list_mutex);
+}
+
+// --- NEW: Handler for CMD_APPROVE_REQUEST ---
+void handle_approve_request(nm_response_t* res, client_request_t req) {
+    pthread_mutex_lock(&g_request_list_mutex);
+    
+    access_request_t* found_req;
+    HASH_FIND_INT(g_access_requests, &req.request_id, found_req);
+
+    if (!found_req) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "Request ID not found");
+        pthread_mutex_unlock(&g_request_list_mutex); return;
+    }
+    if (strcmp(found_req->owner, req.username) != 0) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "You are not the owner of this file");
+        pthread_mutex_unlock(&g_request_list_mutex); return;
+    }
+
+    // Capture details before deleting
+    char target_file[MAX_FILENAME_LEN];
+    char target_user[MAX_USERNAME_LEN];
+    strcpy(target_file, found_req->filename);
+    strcpy(target_user, found_req->requester);
+
+    // Delete request
+    HASH_DEL(g_access_requests, found_req);
+    free(found_req);
+    pthread_mutex_unlock(&g_request_list_mutex);
+
+    // Now, add the access (This is the same logic from handle_add_access)
+    pthread_rwlock_wrlock(&file_map_rwlock);
+    file_info_t* file;
+    HASH_FIND_STR(g_file_map, target_file, file);
+
+    if (!file) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "File no longer exists");
+        pthread_rwlock_unlock(&file_map_rwlock); return;
+    }
+
+    access_entry_t* target_access;
+    HASH_FIND_STR(file->access_list, target_user, target_access);
+    nm_access_level_t new_level = (req.access_level == ACCESS_WRITE) ? NM_ACCESS_WRITE : NM_ACCESS_READ;
+
+    if (target_access) {
+        if (new_level > target_access->level) { // Only upgrade
+            target_access->level = new_level;
+        }
+    } else {
+        access_entry_t* new_access = (access_entry_t*)malloc(sizeof(access_entry_t));
+        strcpy(new_access->username, target_user);
+        new_access->level = new_level;
+        HASH_ADD_STR(file->access_list, username, new_access);
+    }
+    
+    cache_invalidate(target_file);
+    pthread_rwlock_unlock(&file_map_rwlock);
+
+    res->status = STATUS_OK;
+    printf("   -> Request %d approved by %s\n", req.request_id, req.username);
+}
+
+// --- NEW: Handler for CMD_DENY_REQUEST ---
+void handle_deny_request(nm_response_t* res, client_request_t req) {
+    pthread_mutex_lock(&g_request_list_mutex);
+    
+    access_request_t* found_req;
+    HASH_FIND_INT(g_access_requests, &req.request_id, found_req);
+
+    if (!found_req) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "Request ID not found");
+        pthread_mutex_unlock(&g_request_list_mutex); return;
+    }
+    if (strcmp(found_req->owner, req.username) != 0) {
+        res->status = STATUS_ERROR; strcpy(res->error_msg, "You are not the owner of this file");
+        pthread_mutex_unlock(&g_request_list_mutex); return;
+    }
+
+    // Delete request
+    HASH_DEL(g_access_requests, found_req);
+    free(found_req);
+    pthread_mutex_unlock(&g_request_list_mutex);
+
+    res->status = STATUS_OK;
+    printf("   -> Request %d denied by %s\n", req.request_id, req.username);
+}
 // --- ADD: Helper to queue async replication ---
 void queue_replication(const char* logical_name, const char* physical_name, int src_idx, int dest_idx) {
     rep_task_t* task = (rep_task_t*)malloc(sizeof(rep_task_t));
@@ -1523,6 +1743,19 @@ void* handle_connection(void* p_arg) {
              printf("   Handling CMD_LIST_CHECKPOINTS for '%s'\n", req.filename);
              handle_list_checkpoints(conn_fd, req);
              response_sent_by_handler = 1;
+        }  else if (req.command == CMD_REQUEST_ACCESS) {
+            printf("   Handling CMD_REQUEST_ACCESS for '%s'\n", req.filename);
+            handle_request_access(&res, req);
+        } else if (req.command == CMD_LIST_REQUESTS) {
+            printf("   Handling CMD_LIST_REQUESTS for '%s'\n", req.username);
+            handle_list_requests(conn_fd, req);
+            response_sent_by_handler = 1;
+        } else if (req.command == CMD_APPROVE_REQUEST) {
+            printf("   Handling CMD_APPROVE_REQUEST for ID %d\n", req.request_id);
+            handle_approve_request(&res, req);
+        } else if (req.command == CMD_DENY_REQUEST) {
+            printf("   Handling CMD_DENY_REQUEST for ID %d\n", req.request_id);
+            handle_deny_request(&res, req);
         } else {
             res.status = STATUS_ERROR;
             res.error_code = NFS_ERR_INVALID_INPUT; 
@@ -1599,7 +1832,16 @@ void save_metadata_to_disk() {
                     (current_access->level == NM_ACCESS_WRITE) ? 'W' : 'R');
         }
     }
-    
+    pthread_mutex_lock(&g_request_list_mutex);
+    access_request_t *r, *tmp_r;
+    HASH_ITER(hh, g_access_requests, r, tmp_r) {
+        fprintf(fp, "REQ %d %s %s %s\n",
+                r->request_id,
+                r->filename,
+                r->owner,
+                r->requester);
+    }
+    pthread_mutex_unlock(&g_request_list_mutex);
     pthread_rwlock_unlock(&file_map_rwlock);
     fclose(fp);
     printf("   ...Metadata save complete.\n");
@@ -1619,6 +1861,7 @@ void load_metadata_from_disk() {
 
     printf("[Main] Loading metadata from %s...\n", METADATA_FILE);
     char line[1024];
+    int max_id = 0; // To track highest loaded ID
     while (fgets(line, sizeof(line), fp)) {
         line[strcspn(line, "\n")] = 0; // Remove newline
         
@@ -1659,9 +1902,23 @@ void load_metadata_from_disk() {
                     fprintf(stderr, "   [Load] Found ACL for unknown file: %s\n", filename);
                 }
             }
-        }
+        }  else if (strcmp(type, "REQ") == 0) {
+            int id;
+            char owner[MAX_USERNAME_LEN], requester[MAX_USERNAME_LEN];
+            if (sscanf(line, "REQ %d %s %s %s", &id, filename, owner, requester) == 4) {
+                access_request_t* new_req = (access_request_t*)malloc(sizeof(access_request_t));
+                if (new_req) {
+                    new_req->request_id = id;
+                    strcpy(new_req->filename, filename);
+                    strcpy(new_req->owner, owner);
+                    strcpy(new_req->requester, requester);
+                    HASH_ADD_INT(g_access_requests, request_id, new_req);
+                    if (id > max_id) max_id = id;
+                }
+            }
+       }
     }
-
+    g_next_request_id = max_id + 1; // Ensure new IDs are unique
     fclose(fp);
     printf("   ...Metadata load complete. Loaded %d file entries.\n", HASH_COUNT(g_file_map));
 }
@@ -1687,6 +1944,11 @@ void free_file_map() {
         free(current_file);
     }
     free_cache(); // Free the cache as well
+    access_request_t *r, *tmp_r;
+    HASH_ITER(hh, g_access_requests, r, tmp_r) {
+        HASH_DEL(g_access_requests, r);
+        free(r);
+    }
 }
 
 // =================================================================
@@ -1939,12 +2201,18 @@ int main() {
         log_shutdown(); // <-- ADD THIS
         exit(EXIT_FAILURE); 
     }
-    
+    if (pthread_mutex_init(&g_request_list_mutex, NULL) != 0) {
+        perror("[Main] request list mutex init failed"); 
+        server_log(LOG_ERROR, "N/A", 0, "SYS", "request list mutex init failed: %s", strerror(errno));
+        log_shutdown();
+        exit(EXIT_FAILURE); 
+    }
     // --- NEW: Load metadata from disk before starting ---
     // We must lock the map while loading it.
     pthread_rwlock_wrlock(&file_map_rwlock);
     load_metadata_from_disk();
-    pthread_rwlock_unlock(&file_map_rwlock);
+    pthread_rwlock_unlock(&file_map_rwlock); 
+    pthread_mutex_destroy(&g_request_list_mutex);
     // --- END NEW ---
 
     printf("Name Server listening on port %d...\n", NM_PORT);
@@ -2008,7 +2276,7 @@ int main() {
     pthread_rwlock_destroy(&server_list_rwlock);
     pthread_rwlock_destroy(&file_map_rwlock);
     pthread_mutex_destroy(&g_cache_mutex);
-    
+    pthread_mutex_destroy(&g_request_list_mutex);
     log_shutdown(); // <-- ADD THIS
     return 0;
 }

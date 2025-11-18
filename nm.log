@@ -246,3 +246,70 @@
 [2025-11-17 22:44:29] [INFO] [192.168.1.12:46910] [N/A] Closing connection.
 [2025-11-18 00:08:22] [INFO] [N/A:0] [SYS] SIGINT received. Shutting down gracefully.
 [22:42:37] [INFO] [SYS:0] [SYS] --- Log Shutdown ---
+[2025-11-18 08:44:10] [INFO] [N/A:0] [SYS] --- Name Server Starting ---
+[2025-11-18 08:44:10] [INFO] [N/A:0] [SYS] Name Server listening on port 8080
+[2025-11-18 08:45:05] [INFO] [10.147.222.113:57994] [N/A] Connection accepted.
+[2025-11-18 08:45:05] [INFO] [10.147.222.113:57994] [SS] Registered new Storage Server: 10.147.222.113:9090 (Assigned SS#0)
+[2025-11-18 08:45:05] [WARN] [10.147.222.113:57994] [SS] [Sync] Found ORPHAN file 'docs_notes.txt' on SS#0. Metadata not created.
+[2025-11-18 08:45:05] [WARN] [10.147.222.113:57994] [SS] [Sync] Found ORPHAN file 'hhh.txt' on SS#0. Metadata not created.
+[2025-11-18 08:45:05] [INFO] [10.147.222.113:57994] [SS] [Sync] Re-mapping file 'b.txt' from SS#1 to SS#0
+[2025-11-18 08:45:05] [WARN] [10.147.222.113:57994] [SS] [Sync] Found ORPHAN file 'hi.txt' on SS#0. Metadata not created.
+[2025-11-18 08:45:05] [WARN] [10.147.222.113:57994] [SS] [Sync] Found ORPHAN file 'yo.txt' on SS#0. Metadata not created.
+[2025-11-18 08:45:05] [INFO] [10.147.222.113:57994] [N/A] Closing connection.
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:33954] [N/A] Connection accepted.
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:33954] [alice] REQ: CMD=0, File='hello.txt', TargetUser=''
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:33954] [alice] ACK: CMD=0, Status=OK
+[2025-11-18 08:45:46] [INFO] [10.147.222.113:33954] [N/A] Closing connection.
+[2025-11-18 08:45:56] [INFO] [10.147.222.113:51944] [N/A] Connection accepted.
+[2025-11-18 08:45:56] [INFO] [10.147.222.113:51944] [bob] REQ: CMD=3, File='hello.txt', TargetUser=''
+[2025-11-18 08:45:56] [WARN] [10.147.222.113:51944] [bob] NAK: CMD=3, Status=ERROR, Msg=Permission denied
+[2025-11-18 08:45:56] [INFO] [10.147.222.113:51944] [N/A] Closing connection.
+[2025-11-18 08:46:09] [INFO] [10.147.222.113:48352] [N/A] Connection accepted.
+[2025-11-18 08:46:09] [INFO] [10.147.222.113:48352] [bob] REQ: CMD=21, File='hello.txt', TargetUser=''
+[2025-11-18 08:46:09] [INFO] [10.147.222.113:48352] [bob] ACK: CMD=21, Status=OK
+[2025-11-18 08:46:09] [INFO] [10.147.222.113:48352] [N/A] Closing connection.
+[2025-11-18 08:46:40] [INFO] [10.147.222.113:35594] [N/A] Connection accepted.
+[2025-11-18 08:46:40] [INFO] [10.147.222.113:35594] [alice] REQ: CMD=22, File='', TargetUser=''
+[2025-11-18 08:46:40] [INFO] [10.147.222.113:35594] [N/A] Closing connection.
+[2025-11-18 08:46:58] [INFO] [10.147.222.113:55466] [N/A] Connection accepted.
+[2025-11-18 08:46:58] [INFO] [10.147.222.113:55466] [alice] REQ: CMD=23, File='', TargetUser=''
+[2025-11-18 08:46:58] [INFO] [10.147.222.113:55466] [alice] ACK: CMD=23, Status=OK
+[2025-11-18 08:46:58] [INFO] [10.147.222.113:55466] [N/A] Closing connection.
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:43274] [N/A] Connection accepted.
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:43274] [bob] REQ: CMD=3, File='hello.txt', TargetUser=''
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:43274] [bob] ACK: CMD=3, Status=OK
+[2025-11-18 08:47:18] [INFO] [10.147.222.113:43274] [N/A] Closing connection.
+[2025-11-18 08:47:35] [INFO] [10.147.222.113:33836] [N/A] Connection accepted.
+[2025-11-18 08:47:35] [INFO] [10.147.222.113:33836] [alice] REQ: CMD=22, File='', TargetUser=''
+[2025-11-18 08:47:35] [INFO] [10.147.222.113:33836] [N/A] Closing connection.
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58310] [N/A] Connection accepted.
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58310] [alice] REQ: CMD=0, File='deny.txt', TargetUser=''
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58310] [alice] ACK: CMD=0, Status=OK
+[2025-11-18 08:47:56] [INFO] [10.147.222.113:58310] [N/A] Closing connection.
+[2025-11-18 08:48:10] [INFO] [10.147.222.113:43286] [N/A] Connection accepted.
+[2025-11-18 08:48:10] [INFO] [10.147.222.113:43286] [bob] REQ: CMD=21, File='deny.txt', TargetUser=''
+[2025-11-18 08:48:10] [INFO] [10.147.222.113:43286] [bob] ACK: CMD=21, Status=OK
+[2025-11-18 08:48:10] [INFO] [10.147.222.113:43286] [N/A] Closing connection.
+[2025-11-18 08:48:19] [INFO] [10.147.222.113:36348] [N/A] Connection accepted.
+[2025-11-18 08:48:19] [INFO] [10.147.222.113:36348] [alice] REQ: CMD=22, File='', TargetUser=''
+[2025-11-18 08:48:19] [INFO] [10.147.222.113:36348] [N/A] Closing connection.
+[2025-11-18 08:48:40] [INFO] [10.147.222.113:43902] [N/A] Connection accepted.
+[2025-11-18 08:48:40] [INFO] [10.147.222.113:43902] [alice] REQ: CMD=24, File='', TargetUser=''
+[2025-11-18 08:48:40] [INFO] [10.147.222.113:43902] [alice] ACK: CMD=24, Status=OK
+[2025-11-18 08:48:40] [INFO] [10.147.222.113:43902] [N/A] Closing connection.
+[2025-11-18 08:48:57] [INFO] [10.147.222.113:60134] [N/A] Connection accepted.
+[2025-11-18 08:48:57] [INFO] [10.147.222.113:60134] [bob] REQ: CMD=3, File='deny.txt', TargetUser=''
+[2025-11-18 08:48:57] [WARN] [10.147.222.113:60134] [bob] NAK: CMD=3, Status=ERROR, Msg=Permission denied
+[2025-11-18 08:48:57] [INFO] [10.147.222.113:60134] [N/A] Closing connection.
+[2025-11-18 08:49:19] [INFO] [10.147.222.113:43154] [N/A] Connection accepted.
+[2025-11-18 08:49:19] [INFO] [10.147.222.113:43154] [bob] REQ: CMD=21, File='hii.txt', TargetUser=''
+[2025-11-18 08:49:19] [WARN] [10.147.222.113:43154] [bob] NAK: CMD=21, Status=ERROR, Msg=File not found
+[2025-11-18 08:49:19] [INFO] [10.147.222.113:43154] [N/A] Closing connection.
+[2025-11-18 08:49:39] [INFO] [10.147.222.113:49692] [N/A] Connection accepted.
+[2025-11-18 08:49:39] [INFO] [10.147.222.113:49692] [bob] REQ: CMD=21, File='hello.txt', TargetUser=''
+[2025-11-18 08:49:39] [WARN] [10.147.222.113:49692] [bob] NAK: CMD=21, Status=ERROR, Msg=You already have access to this file
+[2025-11-18 08:49:39] [INFO] [10.147.222.113:49692] [N/A] Closing connection.
+[2025-11-18 08:49:56] [INFO] [10.147.222.113:53136] [N/A] Connection accepted.
+[2025-11-18 08:49:56] [INFO] [10.147.222.113:53136] [alice] REQ: CMD=23, File='', TargetUser=''
+[2025-11-18 08:49:56] [WARN] [10.147.222.113:53136] [alice] NAK: CMD=23, Status=ERROR, Msg=Request ID not found
+[2025-11-18 08:49:56] [INFO] [10.147.222.113:53136] [N/A] Closing connection.

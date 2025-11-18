@@ -18,22 +18,41 @@ char g_nm_ip[32];
 void print_help() {
     printf("--- Network File System Client ---\n");
     printf("Available Commands:\n");
+    printf("\n  --- File Operations ---\n");
     printf("  CREATE <filename>\n");
-    printf("  VIEW [-a] [-l] [-al]\n");
-    printf("  READ <filename>\n");
-    printf("  STREAM <filename>\n");
-    printf("  WRITE <filename> <sentence_number>\n");
-    printf("  UNDO <filename>\n");
     printf("  DELETE <filename>\n");
+    printf("  READ <filename>\n");
+    printf("  WRITE <filename> <sentence_number>\n");
+    printf("  STREAM <filename>\n");
+    printf("  UNDO <filename>\n");
     printf("  INFO <filename>\n");
-    printf("  LIST\n"); 
+    printf("  EXEC <filename>\n");    
+
+    printf("\n  --- Folder Operations (Bonus) ---\n");
+    printf("  CREATEFOLDER <foldername>\n");
+    printf("  MOVE <filename> <foldername>\n");
+    printf("  VIEWFOLDER <foldername>\n");
+
+    printf("\n  --- Checkpoint Operations (Bonus) ---\n");
+    printf("  CHECKPOINT <filename> <tag>\n");
+    printf("  REVERT <filename> <tag>\n");
+    printf("  LISTCHECKPOINTS <filename>\n");
+    printf("  VIEWCHECKPOINT <filename> <tag>\n");
+
+    printf("\n  --- Access Control ---\n");
     printf("  ADDACCESS <R|W> <filename> <username>\n"); 
     printf("  REMACCESS <filename> <username>\n");  
-    printf("  EXEC <filename>\n");    
+    printf("  REQUESTACCESS <filename>\n");
+    printf("  LISTREQUESTS\n");
+    printf("  APPROVEREQUEST <request_id> <R|W>\n");
+    printf("  DENYREQUEST <request_id>\n");
+
+    printf("\n  --- System & Help ---\n");
+    printf("  VIEW [-a] [-l] [-al]\n");
+    printf("  LIST (Lists all users)\n"); 
     printf("  help     (Show this message)\n");
     printf("  exit     (Quit the client)\n\n");
 }
-
 /**
  * @brief Connects to a server at the given IP and port.
  */
@@ -208,6 +227,147 @@ void do_view_checkpoint(const char* username, const char* filename, const char* 
     }
     printf("\n------------------------------------------\n");
     close(ss_sock);
+}
+// In client.c
+
+// ... (after do_view_checkpoint)
+
+void do_request_access(const char* username, const char* filename) {
+    client_request_t req = {0};
+    req.command = CMD_REQUEST_ACCESS;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    strncpy(req.filename, filename, MAX_FILENAME_LEN - 1);
+
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0);
+    close(nm_sock_fd); 
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+    } else {
+        printf("Success! Access request for '%s' submitted.\n", req.filename);
+    }
+}
+
+void do_list_requests(const char* username) {
+    client_request_t req = {0};
+    req.command = CMD_LIST_REQUESTS;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0);
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+        close(nm_sock_fd);
+        return;
+    }
+
+    printf("\n--- Pending Access Requests for You (%d) ---\n", nm_res.file_count);
+    if (nm_res.file_count > 0) {
+        printf("%-5s | %-30s | %-20s\n", "ID", "FILENAME", "REQUESTER");
+        printf("-------------------------------------------------------------\n");
+        nm_access_request_entry_t entry;
+        for (int i = 0; i < nm_res.file_count; i++) {
+            recv(nm_sock_fd, &entry, sizeof(nm_access_request_entry_t), 0);
+            printf("%-5d | %-30s | %-20s\n", entry.request_id, entry.filename, entry.username);
+        }
+    }
+    printf("-------------------------------------------------------------\n");
+    close(nm_sock_fd);
+}
+
+void do_approve_request(const char* username, const char* req_id_str, const char* level_str) {
+    client_request_t req = {0};
+    req.command = CMD_APPROVE_REQUEST;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    
+    if (!is_numeric(req_id_str)) {
+        fprintf(stderr, "Error: Request ID must be a number.\n");
+        return;
+    }
+    req.request_id = atoi(req_id_str);
+
+    if (strcmp(level_str, "R") == 0) {
+        req.access_level = ACCESS_READ;
+    } else if (strcmp(level_str, "W") == 0) {
+        req.access_level = ACCESS_WRITE;
+    } else {
+        fprintf(stderr, "Error: Access level must be 'R' or 'W'\n");
+        return;
+    }
+
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0);
+    close(nm_sock_fd); 
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+    } else {
+        printf("Success! Request %d approved.\n", req.request_id);
+    }
+}
+
+void do_deny_request(const char* username, const char* req_id_str) {
+    client_request_t req = {0};
+    req.command = CMD_DENY_REQUEST;
+    strncpy(req.username, username, MAX_USERNAME_LEN - 1);
+    
+    if (!is_numeric(req_id_str)) {
+        fprintf(stderr, "Error: Request ID must be a number.\n");
+        return;
+    }
+    req.request_id = atoi(req_id_str);
+
+    int nm_sock_fd = connect_to_server(g_nm_ip, NM_PORT);
+    if (nm_sock_fd < 0) { 
+        fprintf(stderr, "Error: Could not connect to Name Server.\n"); 
+        return; 
+    }
+
+    message_type_t msg_type = MSG_CLIENT_NM_REQUEST;
+    send(nm_sock_fd, &msg_type, sizeof(message_type_t), 0);
+    send(nm_sock_fd, &req, sizeof(client_request_t), 0);
+
+    nm_response_t nm_res;
+    recv(nm_sock_fd, &nm_res, sizeof(nm_response_t), 0);
+    close(nm_sock_fd); 
+    
+    if (nm_res.status == STATUS_ERROR) { 
+        fprintf(stderr, "[Error from Server]: %s\n", nm_res.error_msg); 
+    } else {
+        printf("Success! Request %d denied.\n", req.request_id);
+    }
 }
 // REPLACE the old do_create in client.c with this:
 void do_create(const char* username, const char* filename) {
@@ -1076,6 +1236,34 @@ else if (strcmp(command, "VIEWFOLDER") == 0) {
             char* tag = strtok(NULL, " \n");
             if (filename && tag) do_view_checkpoint(username, filename, tag);
             else printf("Usage: VIEWCHECKPOINT <filename> <tag>\n");
+        } else if (strcmp(command, "REQUESTACCESS") == 0) {
+            char* filename = strtok(NULL, " \n");
+            if (filename == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: REQUESTACCESS <filename>\n");
+            } else {
+                do_request_access(username, filename);
+            }
+        } else if (strcmp(command, "LISTREQUESTS") == 0) {
+            if (strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: LISTREQUESTS\n");
+            } else {
+                do_list_requests(username);
+            }
+        } else if (strcmp(command, "APPROVEREQUEST") == 0) {
+            char* id_str = strtok(NULL, " \n");
+            char* level_str = strtok(NULL, " \n");
+            if (id_str == NULL || level_str == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: APPROVEREQUEST <request_id> <R|W>\n");
+            } else {
+                do_approve_request(username, id_str, level_str);
+            }
+        } else if (strcmp(command, "DENYREQUEST") == 0) {
+            char* id_str = strtok(NULL, " \n");
+            if (id_str == NULL || strtok(NULL, " \n") != NULL) {
+                fprintf(stderr, "Usage: DENYREQUEST <request_id>\n");
+            } else {
+                do_deny_request(username, id_str);
+            }
         } else {
             fprintf(stderr, "Unknown command: '%s'. Type 'help' for commands.\n", command);
         }

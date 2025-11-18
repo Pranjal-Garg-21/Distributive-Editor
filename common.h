@@ -80,7 +80,11 @@ typedef enum {
     CMD_VIEW_CHECKPOINT, // <-- NEW
     CMD_REVERT,          // <-- NEW
     CMD_LIST_CHECKPOINTS, // <-- NEW
-    CMD_REPLICATE
+    CMD_REPLICATE,
+    CMD_REQUEST_ACCESS,
+    CMD_LIST_REQUESTS,
+    CMD_APPROVE_REQUEST,
+    CMD_DENY_REQUEST
 } client_command_t;
 
 // --- Access Level Enum ---
@@ -111,13 +115,20 @@ typedef struct {
 
     bool view_all; // -a
     bool view_long; // -l
-
+    int request_id;
     char target_username[MAX_USERNAME_LEN];
     access_level_t access_level;
     char dest_path[MAX_FILENAME_LEN];
     char checkpoint_tag[50];
 } client_request_t;
-
+// --- NEW: Struct for LISTREQUESTS ---
+// NM -> Client, sent file_count (as request_count) times after header
+typedef struct {
+    int request_id;
+    char filename[MAX_FILENAME_LEN];
+    char username[MAX_USERNAME_LEN]; // The user who wants access
+} nm_access_request_entry_t;
+// --- END NEW ---
 // NM sends this back to Client (Generic)
 typedef struct {
     response_status_t status;
